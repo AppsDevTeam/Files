@@ -67,9 +67,9 @@ class Helpers extends \Nette\Object
 		}
 
 		$id = (string)$row->id;
+		$originalName = \Nette\Utils\Strings::webalize($row->originalName);
 		$idPart = implode(DIRECTORY_SEPARATOR, str_split($id, static::ID_SPLIT_LEN));
-		$namePart = static::resizeName($row->originalName, static::NAME_LEN - strlen($idPart) - static::HASH_LEN - 2);
-		$namePart = \Nette\Utils\Strings::webalize($namePart);
+		$namePart = static::resizeName($originalName, static::NAME_LEN - strlen($idPart) - static::HASH_LEN - 2);
 		$hashPart = substr(md5($id . $namePart . static::$salt), 0, static::HASH_LEN);
 
 		return $idPart .'_'. $hashPart .'_'. $namePart;
