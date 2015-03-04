@@ -20,6 +20,11 @@ class Helpers extends \Nette\Object
 	 */
 	const ID_SPLIT_LEN = 3;
 
+	protected static $salt = NULL;
+	public static function setSalt($salt) {
+		static::$salt = $salt;
+	}
+
 	/**
 	 * Zadané jméno souboru zkrátí na maximální délku tak, že pokud je $name
 	 * kratší, vrátí ho nezměněné. Pokud je delší, nejprve zkrátí extension na
@@ -56,9 +61,15 @@ class Helpers extends \Nette\Object
 	 * @return string
 	 */
 	public static function getName(\Nette\Database\Table\ActiveRow $row) {
-		$idPart = implode(DIRECTORY_SEPARATOR, str_split((string)$row->id, static::ID_SPLIT_LEN));
-		$hashPart = \Nette\Utils\Random::generate(static::HASH_LEN);
+
+		if (static::$salt === NULL) {
+			throw new \Nette\InvalidStateException('Add \ADT\Files\Helpers::setSalt to your bootstrap!');
+		}
+
+		$id = (string)$row->id;
+		$idPart = implode(DIRECTORY_SEPARATOR, str_split($id, static::ID_SPLIT_LEN));
 		$namePart = static::resizeName($row->originalName, static::NAME_LEN - strlen($idPart) - static::HASH_LEN - 2);
+		$hashPart = substr(md5($id . $namePart . static::$salt), 0, static::HASH_LEN);
 
 		return $idPart .'_'. $hashPart .'_'. $namePart;
 	}
