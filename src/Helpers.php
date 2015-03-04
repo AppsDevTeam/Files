@@ -31,7 +31,7 @@ class Helpers extends \Nette\Object
 	 * @param integer $maxExtLen
 	 * @return string
 	 */
-	public static function resizeName($name, $maxLen = static::ORIGINAL_NAME_LEN, $maxExtLen = 10) {
+	public static function resizeName($name, $maxLen = self::ORIGINAL_NAME_LEN, $maxExtLen = 10) {
 		if (strlen($name) < $maxLen) {
 			return $name;
 		}
