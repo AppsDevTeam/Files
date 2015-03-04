@@ -67,7 +67,13 @@ class Helpers extends \Nette\Object
 		}
 
 		$id = (string)$row->id;
-		$originalName = \Nette\Utils\Strings::webalize($row->originalName);
+
+		$pathinfo = pathinfo($row->originalName);
+		$originalName = \Nette\Utils\Strings::webalize($pathinfo['filename']);
+		if (isset($pathinfo['extension'])) {
+			$originalName .= '.'. $pathinfo['extension'];
+		}
+
 		$idPart = implode(DIRECTORY_SEPARATOR, str_split($id, static::ID_SPLIT_LEN));
 		$namePart = static::resizeName($originalName, static::NAME_LEN - strlen($idPart) - static::HASH_LEN - 2);
 		$hashPart = substr(md5($id . $namePart . static::$salt), 0, static::HASH_LEN);
