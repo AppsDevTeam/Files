@@ -37,20 +37,20 @@ class Helpers extends \Nette\Object
 	 * @return string
 	 */
 	public static function resizeName($name, $maxLen = self::ORIGINAL_NAME_LEN, $maxExtLen = 10) {
-		if (strlen($name) < $maxLen) {
+		if (mb_strlen($name) < $maxLen) {
 			return $name;
 		}
 
 		$pathinfo = pathinfo($name);
 
 		if (! isset($pathinfo['extension'])) {
-			return substr($name, 0, $maxLen);
+			return mb_substr($name, 0, $maxLen);
 		}
 
 		// omezení extension
-		$pathinfo['extension'] = substr($pathinfo['extension'], 0, $maxExtLen);
+		$pathinfo['extension'] = mb_substr($pathinfo['extension'], 0, $maxExtLen);
 
-		return substr($pathinfo['filename'], 0, $maxLen - strlen($pathinfo['extension']) - 1) .'.'. $pathinfo['extension'];
+		return mb_substr($pathinfo['filename'], 0, $maxLen - mb_strlen($pathinfo['extension']) - 1) .'.'. $pathinfo['extension'];
 	}
 
 	/**
