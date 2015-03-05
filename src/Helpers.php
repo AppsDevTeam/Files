@@ -56,26 +56,47 @@ class Helpers extends \Nette\Object
 	/**
 	 * Pro daný ActiveRow (id, originalName) vrátí název a cestu k souboru.
 	 * Adresářová struktura je vytvářena tak, aby nebylo v jednom adresáři přiliš
-	 * mnoho záznamů (souborů a složek).
-	 * @param \Nette\Database\Table\ActiveRow $row
+	 * mnoho záznamů (souborů a složek). Pokud je místo $id zadán callback, je
+	 * použit způsob generování id náhodně. Tento callback pak ověřuje, zda je
+	 * náhodně vygenerované id již použito nebo ne.
+	 * @param string $originalName
+	 * @param integer|callable $id Id, které se má použít a nebo callback
+	 *		ověřující, zda je náhodně vygenerované id již použité:
+	 *		function(array $id) {}. Id je pole - číslo rozdělené po ID_SPLIT_LEN
+	 *		dekadických číslicích. Vrací boolean.
 	 * @return string
 	 */
-	public static function getName(\Nette\Database\Table\ActiveRow $row) {
+	public static function getName($originalName, $id) {
 
 		if (static::$salt === NULL) {
 			throw new \Nette\InvalidStateException('Add \ADT\Files\Helpers::setSalt to your bootstrap!');
 		}
 
-		$id = (string)$row->id;
+		if (is_scalar($id)) {
+			$id = str_split((string)$id, static::ID_SPLIT_LEN);
 
-		$pathinfo = pathinfo($row->originalName);
+		} else if (is_callable($id)) {
+			$isIdUsedCallback = $id;
+			unset($id);
+
+			$length = 0;
+			do {
+				$length++;
+				$id = [];
+				for ($i = 0; $i < $length; $i++) {
+					$id[] = rand(0, pow(10, static::ID_SPLIT_LEN) - 1);
+				}
+			} while($isIdUsedCallback($id));
+		}
+
+		$pathinfo = pathinfo($originalName);
 		$originalName = \Nette\Utils\Strings::webalize($pathinfo['filename']);
 		if (isset($pathinfo['extension'])) {
 			$originalName .= '.'. $pathinfo['extension'];
 		}
 
 		$localhostPart = ($_SERVER['SERVER_ADDR'] === '127.0.0.1' ? 'loc/' : '');
-		$idPart = implode(DIRECTORY_SEPARATOR, str_split($id, static::ID_SPLIT_LEN));
+		$idPart = implode(DIRECTORY_SEPARATOR, $id);
 		$namePart = static::resizeName($originalName, static::NAME_LEN - strlen($localhostPart) - strlen($idPart) - static::HASH_LEN - 2);
 		$hashPart = substr(md5($id . $namePart . static::$salt), 0, static::HASH_LEN);
 
