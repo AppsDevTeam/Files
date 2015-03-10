@@ -98,7 +98,7 @@ class Helpers extends \Nette\Object
 		$localhostPart = ($_SERVER['SERVER_ADDR'] === '127.0.0.1' ? 'loc/' : '');
 		$idPart = implode(DIRECTORY_SEPARATOR, $id);
 		$namePart = static::resizeName($originalName, static::NAME_LEN - strlen($localhostPart) - strlen($idPart) - static::HASH_LEN - 2);
-		$hashPart = substr(md5($id . $namePart . static::$salt), 0, static::HASH_LEN);
+		$hashPart = substr(md5($idPart . $namePart . static::$salt), 0, static::HASH_LEN);
 
 		return $localhostPart . $idPart .'_'. $hashPart .'_'. $namePart;
 	}
