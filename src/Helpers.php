@@ -95,7 +95,8 @@ class Helpers extends \Nette\Object
 			$originalName .= '.'. $pathinfo['extension'];
 		}
 
-		$localhostPart = ($_SERVER['SERVER_ADDR'] === '127.0.0.1' ? 'loc/' : '');
+		// TODO: přidat volitelný callback na zjištění IS_PRODUCTION, aby si každý mohl nastavit dle potřeby.
+		$localhostPart = (!isset($_SERVER['SERVER_ADDR']) || $_SERVER['SERVER_ADDR'] === '127.0.0.1' ? 'loc/' : '');
 		$idPart = implode(DIRECTORY_SEPARATOR, $id);
 		$namePart = static::resizeName($originalName, static::NAME_LEN - strlen($localhostPart) - strlen($idPart) - static::HASH_LEN - 2);
 		$hashPart = substr(md5($idPart . $namePart . static::$salt), 0, static::HASH_LEN);
