@@ -2,8 +2,10 @@
 
 namespace ADT\Files;
 
-class Helpers extends \Nette\Object
+class Helpers
 {
+	use \Nette\SmartObject;
+	
 	/* Maximální délka sloupce originalName */
 	const ORIGINAL_NAME_LEN = 255;
 
