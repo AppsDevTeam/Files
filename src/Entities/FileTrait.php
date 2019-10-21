@@ -5,13 +5,8 @@ namespace ADT\Files\Entities;
 use ADT\Files\Helpers;
 use Doctrine\ORM\Mapping as ORM;
 
-/**
- * File
- *
- * @ORM\Entity
- * @ORM\HasLifecycleCallbacks
- */
-class File {
+
+trait FileTrait {
 
 	use \Kdyby\Doctrine\Entities\Attributes\Identifier;
 
@@ -25,7 +20,7 @@ class File {
 	/**
 	 * @var \DateTime
 	 *
-	 * @ORM\Column(type="datetime", nullable=false)
+	 * @ORM\Column(type="datetime", options={"default": "CURRENT_TIMESTAMP"})
 	 */
 	protected $createdAt;
 
@@ -48,11 +43,6 @@ class File {
 	 * @var string
 	 */
 	protected $url;
-
-	public function __construct()
-	{
-		$this->createdAt = new \DateTime();
-	}
 
 	public function getPath()
 	{
