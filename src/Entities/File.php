@@ -32,7 +32,7 @@ class File {
 	/**
 	 * @var string
 	 */
-	protected $temporaryFile;
+	public $temporaryFile;
 
 	/**
 	 * @var string
@@ -78,9 +78,30 @@ class File {
 		return $this;
 	}
 
+	/**
+	 * Creates a temporary file from string
+	 *
+	 * @param string $content
+	 * @param string $originalName
+	 */
+	public function createTemporaryFile(string $content, string $originalName)
+	{
+		$temp = tmpfile();
+		fwrite($temp, $content);
+
+		$this->temporaryFile = $temp;
+		$this->originalName = $originalName;
+
+		return $this;
+	}
+
 	public function setTemporaryFile(string $temporaryFile, string $originalName)
 	{
-		$this->temporaryFile = $temporaryFile;
+		if (!is_file($temporaryFile)) {
+			throw new \Exception('Temporary file not found');
+		}
+
+		$this->temporaryFile = fopen($temporaryFile, 'r');
 		$this->originalName = $originalName;
 
 		return $this;
@@ -99,9 +120,11 @@ class File {
 
 		$this->filename = Helpers::getName($this->originalName, $this->id);
 
-		if (!rename($this->temporaryFile, $this->path  . '/' . $this->filename)) {
+		if (!rename(stream_get_meta_data($this->temporaryFile)['uri'], $this->path  . '/' . $this->filename)) {
 			throw new \Exception('File was not uploaded.');
 		}
+
+		fclose($this->temporaryFile);
 
 		$this->temporaryFile = null;
 		$this->originalName = null;
