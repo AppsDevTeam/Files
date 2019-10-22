@@ -3,6 +3,7 @@
 namespace ADT\Files\Listeners;
 
 use ADT\Files\Entities\FileTrait;
+use App\Entity\File;
 use Doctrine\ORM\Event\LifecycleEventArgs;
 
 class FileListener implements \Kdyby\Events\Subscriber
@@ -20,6 +21,11 @@ class FileListener implements \Kdyby\Events\Subscriber
 	protected $dataUrl;
 
 	/**
+	 * @var string
+	 */
+	protected $fileEntityClass;
+
+	/**
 	 * @var \Kdyby\Doctrine\EntityManager
 	 */
 	protected $em;
@@ -31,10 +37,11 @@ class FileListener implements \Kdyby\Events\Subscriber
 	 * @param \Kdyby\Events\EventManager $evm
 	 * @param \Kdyby\Doctrine\EntityManager $em
 	 */
-	public function __construct(string $dataDir, string $dataUrl, \Kdyby\Events\EventManager $evm, \Kdyby\Doctrine\EntityManager $em)
+	public function __construct(string $dataDir, string $dataUrl, string $fileEntityClass, \Kdyby\Events\EventManager $evm, \Kdyby\Doctrine\EntityManager $em)
 	{
 		$this->dataDir = $dataDir;
 		$this->dataUrl = $dataUrl;
+		$this->fileEntityClass = $fileEntityClass;
 		$evm->addEventSubscriber($this);
 		$this->em = $em;
 	}
@@ -56,7 +63,7 @@ class FileListener implements \Kdyby\Events\Subscriber
 	{
 		$entity = $args->getEntity();
 
-		if (!$entity instanceof File) {
+		if (!$entity instanceof $this->fileEntityClass) {
 			return;
 		}
 
@@ -72,7 +79,7 @@ class FileListener implements \Kdyby\Events\Subscriber
 	{
 		$entity = $args->getEntity();
 
-		if (!isset(class_uses($entity)[FileTrait::class])) {
+		if (!$entity instanceof $this->fileEntityClass) {
 			return;
 		}
 
