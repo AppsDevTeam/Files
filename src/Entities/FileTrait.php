@@ -20,7 +20,7 @@ trait FileTrait {
 	/**
 	 * @var \DateTime
 	 *
-	 * @ORM\Column(type="datetime", options={"default": "CURRENT_TIMESTAMP"})
+	 * @ORM\Column(type="datetime_immutable")
 	 */
 	protected $createdAt;
 
@@ -43,6 +43,11 @@ trait FileTrait {
 	 * @var string
 	 */
 	protected $url;
+
+	public function __construct()
+	{
+		$this->createdAt = new \DateTime();
+	}
 
 	public function getPath()
 	{
