@@ -120,6 +120,8 @@ trait FileTrait {
 		}
 
 		fclose($this->temporaryFile);
+		
+		chmod($this->path  . '/' . $this->filename, 0644);
 
 		$this->temporaryFile = null;
 		$this->originalName = null;
