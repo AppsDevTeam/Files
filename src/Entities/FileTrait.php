@@ -115,13 +115,14 @@ trait FileTrait {
 
 		$this->filename = Helpers::getName($this->originalName, $this->id);
 
+		@mkdir(dirname($this->path  . '/' . $this->filename), 0775, true);
 		if (!rename(stream_get_meta_data($this->temporaryFile)['uri'], $this->path  . '/' . $this->filename)) {
 			throw new \Exception('File was not uploaded.');
 		}
 
 		fclose($this->temporaryFile);
 		
-		chmod($this->path  . '/' . $this->filename, 0644);
+		chmod($this->path  . '/' . $this->filename, 0664);
 
 		$this->temporaryFile = null;
 		$this->originalName = null;
