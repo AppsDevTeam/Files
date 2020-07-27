@@ -5,9 +5,8 @@ namespace ADT\Files\Entities;
 use ADT\Files\Helpers;
 use Doctrine\ORM\Mapping as ORM;
 
-
-trait FileTrait {
-
+trait FileTrait 
+{
 	use \Kdyby\Doctrine\Entities\Attributes\Identifier;
 
 	/**
@@ -27,7 +26,7 @@ trait FileTrait {
 	/**
 	 * @var string
 	 */
-	public $temporaryFile;
+	protected $temporaryFile;
 
 	/**
 	 * @var string
@@ -43,6 +42,11 @@ trait FileTrait {
 	 * @var string
 	 */
 	protected $url;
+
+	/**
+	 * @var callable
+	 */
+	protected $onAfterSave;
 
 	public function __construct()
 	{
@@ -127,6 +131,17 @@ trait FileTrait {
 		$this->temporaryFile = null;
 		$this->originalName = null;
 
+		if ($this->onAfterSave) {
+			call_user_func($this->onAfterSave, $this->path . '/' . $this->filename);
+		}
+
+		return $this;
+	}
+	
+	public function setOnAfterSaveCallback($callback)
+	{
+		$this->onAfterSave = $callback;
+		
 		return $this;
 	}
 }
