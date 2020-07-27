@@ -131,17 +131,18 @@ trait FileTrait
 		$this->temporaryFile = null;
 		$this->originalName = null;
 
-		if ($this->onAfterSave) {
-			call_user_func($this->onAfterSave, $this->path . '/' . $this->filename);
-		}
-
 		return $this;
 	}
 	
-	public function setOnAfterSaveCallback($callback)
+	public function setOnAfterSave($callback)
 	{
 		$this->onAfterSave = $callback;
 		
 		return $this;
+	}
+
+	public function getOnAfterSave()
+	{
+		return $this->onAfterSave;
 	}
 }
