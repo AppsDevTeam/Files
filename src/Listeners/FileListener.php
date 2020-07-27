@@ -90,6 +90,10 @@ class FileListener implements \Kdyby\Events\Subscriber
 				->saveFile();
 
 			$this->em->flush($entity);
+
+			if ($entity->getOnAfterSave()) {
+				call_user_func($entity->getOnAfterSave(), $entity);
+			}
 		}
 	}
 }
