@@ -3,7 +3,6 @@
 namespace ADT\Files\Listeners;
 
 use ADT\Files\Entities\FileTrait;
-use Doctrine\ORM\AbstractQuery;
 use Doctrine\ORM\Event\LifecycleEventArgs;
 
 class FileListener implements \Kdyby\Events\Subscriber
