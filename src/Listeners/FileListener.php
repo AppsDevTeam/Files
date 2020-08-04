@@ -3,7 +3,6 @@
 namespace ADT\Files\Listeners;
 
 use ADT\Files\Entities\FileTrait;
-use App\Model\Entity\File;
 use Doctrine\ORM\AbstractQuery;
 use Doctrine\ORM\Event\LifecycleEventArgs;
 
@@ -74,11 +73,6 @@ class FileListener implements \Kdyby\Events\Subscriber
 
 		$entity->setPath($this->dataDir)
 			->setUrl($this->dataUrl);
-
-		$entity->setOnBeforeDelete(function(File $entity) {
-			@unlink($entity->getBigThumbnailPath());
-			@unlink($entity->getSmallThumbnailPath());
-		});
 	}
 
 	/**
@@ -111,7 +105,7 @@ class FileListener implements \Kdyby\Events\Subscriber
 	{
 		$entity = $eventArgs->getEntity();
 
-		if (!$entity instanceof \App\Model\Entity\File) {
+		if (!$entity instanceof $this->fileEntityClass) {
 			return;
 		}
 
@@ -132,8 +126,8 @@ class FileListener implements \Kdyby\Events\Subscriber
 
 		@unlink($this->file->getPath());
 
-		if ($this->file->getOnBeforeDelete()) {
-			call_user_func($this->file->getOnBeforeDelete(), $this->file);
+		if ($this->file->getOnAfterDelete()) {
+			call_user_func($this->file->getOnAfterDelete(), $this->file);
 		}
 
 		$this->file = null;
