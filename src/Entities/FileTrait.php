@@ -7,7 +7,12 @@ use Doctrine\ORM\Mapping as ORM;
 
 trait FileTrait 
 {
-	use \Kdyby\Doctrine\Entities\Attributes\Identifier;
+	/**
+	 * @var string
+	 *
+	 * @ORM\Column(type="string", nullable=false)
+	 */
+	protected $originalName;
 
 	/**
 	 * @var string
@@ -31,11 +36,6 @@ trait FileTrait
 	/**
 	 * @var string
 	 */
-	protected $originalName;
-
-	/**
-	 * @var string
-	 */
 	protected $path;
 
 	/**
@@ -47,6 +47,11 @@ trait FileTrait
 	 * @var callable
 	 */
 	protected $onAfterSave;
+
+	/**
+	 * @var callable
+	 */
+	protected $onAfterDelete;
 
 	public function __construct()
 	{
@@ -129,7 +134,6 @@ trait FileTrait
 		chmod($this->path  . '/' . $this->filename, 0664);
 
 		$this->temporaryFile = null;
-		$this->originalName = null;
 
 		return $this;
 	}
@@ -144,5 +148,47 @@ trait FileTrait
 	public function getOnAfterSave()
 	{
 		return $this->onAfterSave;
+	}
+
+	/**
+	 * @return string
+	 */
+	public function getFilename(): string
+	{
+		return $this->filename;
+	}
+
+	/**
+	 * @return string
+	 */
+	public function getOriginalName(): string
+	{
+		return $this->originalName;
+	}
+
+	/**
+	 * @return \DateTime
+	 */
+	public function getCreatedAt(): \DateTime
+	{
+		return $this->createdAt;
+	}
+
+	/**
+	 * @return callable
+	 */
+	public function getOnAfterDelete(): callable
+	{
+		return $this->onAfterDelete;
+	}
+
+	/**
+	 * @param callable $onAfterDelete
+	 * @return self
+	 */
+	public function setOnAfterDelete(callable $onAfterDelete): self
+	{
+		$this->onAfterDelete = $onAfterDelete;
+		return $this;
 	}
 }

@@ -3,7 +3,6 @@
 namespace ADT\Files\Listeners;
 
 use ADT\Files\Entities\FileTrait;
-use App\Entity\File;
 use Doctrine\ORM\Event\LifecycleEventArgs;
 
 class FileListener implements \Kdyby\Events\Subscriber
@@ -30,6 +29,8 @@ class FileListener implements \Kdyby\Events\Subscriber
 	 */
 	protected $em;
 
+	protected $file;
+
 	/**
 	 * FileListener constructor.
 	 * @param string $dataDir
@@ -53,6 +54,8 @@ class FileListener implements \Kdyby\Events\Subscriber
 		return [
 			"postLoad",
 			"postPersist",
+			"preRemove",
+			"postRemove",
 		];
 	}
 
@@ -95,5 +98,37 @@ class FileListener implements \Kdyby\Events\Subscriber
 				call_user_func($entity->getOnAfterSave(), $entity);
 			}
 		}
+	}
+
+	public function preRemove(\Doctrine\ORM\Event\LifecycleEventArgs $eventArgs)
+	{
+		$entity = $eventArgs->getEntity();
+
+		if (!$entity instanceof $this->fileEntityClass) {
+			return;
+		}
+
+		$this->file = $this->em->createQueryBuilder()
+			->select('e')
+			->from($this->fileEntityClass, 'e')
+			->where('e.id = :id')
+			->setParameter('id', $entity->getId())
+			->getQuery()
+			->getResult('readOnly')[0];
+	}
+
+	public function postRemove(\Doctrine\ORM\Event\LifecycleEventArgs $eventArgs)
+	{
+		if (!$this->file) {
+			return;
+		}
+
+		@unlink($this->file->getPath());
+
+		if ($this->file->getOnAfterDelete()) {
+			call_user_func($this->file->getOnAfterDelete(), $this->file);
+		}
+
+		$this->file = null;
 	}
 }
