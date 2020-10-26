@@ -20,17 +20,17 @@ Installation
     ```   
 * Create your File entity for example:
     ```php
-        use ADT\Files\Entities\FileEntity;
-        use ADT\Files\Entities\FileTrait;
+        use ADT\Files\Entities\IFileEntity;
+        use ADT\Files\Entities\TFileEntity;
         use Doctrine\ORM\Mapping as ORM;
         
         /**
          * @ORM\Entity()
          */
-        class File implements FileEntity
+        class File implements IFileEntity
         {
         
-            use FileTrait;
+            use TFileEntity;
         
         }
     ``` 

@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace ADT\Files\Listeners;
 
-use ADT\Files\Entities\FileEntity;
+use ADT\Files\Entities\IFileEntity;
 use Doctrine\Common\EventManager;
 use Doctrine\Common\EventSubscriber;
 use Doctrine\Common\Util\ClassUtils;
@@ -30,7 +30,7 @@ class FileListener implements EventSubscriber
 	protected $em;
 
 	/**
-	 * @var FileEntity[]
+	 * @var IFileEntity[]
 	 */
 	protected $filesToDelete = [];
 
@@ -67,7 +67,7 @@ class FileListener implements EventSubscriber
 	{
 		$entity = $args->getEntity();
 
-		if (!$entity instanceof FileEntity) {
+		if (!$entity instanceof IFileEntity) {
 			return;
 		}
 
@@ -83,7 +83,7 @@ class FileListener implements EventSubscriber
 	{
 		$entity = $args->getEntity();
 
-		if (!$entity instanceof FileEntity) {
+		if (!$entity instanceof IFileEntity) {
 			return;
 		}
 
@@ -103,7 +103,7 @@ class FileListener implements EventSubscriber
 	public function preRemove(LifecycleEventArgs $eventArgs)
 	{
 		$entity = $eventArgs->getEntity();
-		if (!$entity instanceof FileEntity) {
+		if (!$entity instanceof IFileEntity) {
 			return;
 		}
 
@@ -120,7 +120,7 @@ class FileListener implements EventSubscriber
 
 	public function postFlush()
 	{
-		/** @var FileEntity $entity */
+		/** @var IFileEntity $entity */
 		foreach ($this->filesToDelete as $entity) {
 			@unlink($entity->getPath());
 

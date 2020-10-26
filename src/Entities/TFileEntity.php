@@ -7,10 +7,10 @@ use ADT\Files\Helpers;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * Trait FileTrait
+ * Trait TFileEntity
  * @package ADT\Files\Entities
  */
-trait FileTrait
+trait TFileEntity
 {
 	/**
 	 * @var string
@@ -56,9 +56,10 @@ trait FileTrait
 		return $this->path . '/' . $this->filename;
 	}
 
-	public function setBaseDirectoryPath(string $path): void
+	public function setBaseDirectoryPath(string $path): self
 	{
 		$this->path = $path;
+		return $this;
 	}
 
 	public function getUrl(): string
@@ -66,21 +67,23 @@ trait FileTrait
 		return $this->url . '/' . $this->filename;
 	}
 
-	public function setBaseDirectoryUrl(string $url): void
+	public function setBaseDirectoryUrl(string $url): self
 	{
 		$this->url = $url;
+		return $this;
 	}
 
-	public function setTemporaryContent(string $content, string $originalName): void
+	public function setTemporaryContent(string $content, string $originalName): self
 	{
 		$temp = tmpfile();
 		fwrite($temp, $content);
 
 		$this->temporaryFile = $temp;
 		$this->originalName = $originalName;
+		return $this;
 	}
 
-	public function setTemporaryFile(string $temporaryFile, string $originalName): void
+	public function setTemporaryFile(string $temporaryFile, string $originalName): self
 	{
 		if (!is_file($temporaryFile)) {
 			throw new \Exception('Temporary file not found');
@@ -88,6 +91,7 @@ trait FileTrait
 
 		$this->temporaryFile = fopen($temporaryFile, 'r');
 		$this->originalName = $originalName;
+		return $this;
 	}
 
 	public function hasTemporaryFile(): bool
@@ -95,7 +99,7 @@ trait FileTrait
 		return (bool) $this->temporaryFile;
 	}
 
-	public function saveFile(): void
+	public function saveFile(): self
 	{
 		if (empty($this->path)) {
 			throw new \Exception('Use File::setPath() method before calling this method.');
@@ -113,11 +117,13 @@ trait FileTrait
 		chmod($this->path  . '/' . $this->filename, 0664);
 
 		$this->temporaryFile = null;
+		return $this;
 	}
 
-	public function setOnAfterSave(callable $callback): void
+	public function setOnAfterSave(callable $callback): self
 	{
 		$this->onAfterSave = $callback;
+		return $this;
 	}
 
 	public function getOnAfterSave(): ?callable
@@ -140,8 +146,9 @@ trait FileTrait
 		return $this->onAfterDelete;
 	}
 
-	public function setOnAfterDelete(callable $onAfterDelete): void
+	public function setOnAfterDelete(callable $onAfterDelete): self
 	{
 		$this->onAfterDelete = $onAfterDelete;
+		return $this;
 	}
 }
