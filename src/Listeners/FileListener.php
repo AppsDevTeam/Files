@@ -81,7 +81,13 @@ class FileListener implements EventSubscriber
 	 */
 	public function postPersist(LifecycleEventArgs $args)
 	{
-		$this->saveFile($args);
+		$entity = $args->getEntity();
+
+		if (!$entity instanceof IFileEntity) {
+			return;
+		}
+
+		$this->saveFile($args->getEntity());
 	}
 
 	public function preUpdate(LifecycleEventArgs $args)
@@ -101,7 +107,13 @@ class FileListener implements EventSubscriber
 	 */
 	public function postUpdate(LifecycleEventArgs $args)
 	{
-		$this->saveFile($args);
+		$entity = $args->getEntity();
+
+		if (!$entity instanceof IFileEntity) {
+			return;
+		}
+
+		$this->saveFile($args->getEntity());
 	}
 
 	public function preRemove(LifecycleEventArgs $eventArgs)
@@ -127,14 +139,8 @@ class FileListener implements EventSubscriber
 		$this->filesToDelete = [];
 	}
 
-	protected function saveFile(LifecycleEventArgs $args)
+	protected function saveFile(IFileEntity $entity)
 	{
-		$entity = $args->getEntity();
-
-		if (!$entity instanceof IFileEntity) {
-			return;
-		}
-
 		if ($entity->hasTemporaryFile()) {
 			$entity->setBaseDirectoryPath($this->dataDir);
 			$entity->setBaseDirectoryUrl($this->dataUrl);
@@ -153,7 +159,7 @@ class FileListener implements EventSubscriber
 		}
 	}
 
-	protected function setToDelete($entity)
+	protected function setToDelete(IFileEntity $entity)
 	{
 		// zabespeci nacteni entity pokud jde o proxy, v opacnem pripade
 		// by v post flush nebylo mozne ziskat path lebo by doctrine nenasla entitu v db
