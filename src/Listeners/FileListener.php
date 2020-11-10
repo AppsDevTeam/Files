@@ -13,7 +13,6 @@ use steevanb\DoctrineReadOnlyHydrator\Hydrator\ReadOnlyHydrator;
 
 class FileListener implements EventSubscriber
 {
-
 	/**
 	 * @var string
 	 */
@@ -55,6 +54,7 @@ class FileListener implements EventSubscriber
 		return [
 			"postLoad",
 			"postPersist",
+			"postUpdate",
 			"preRemove",
 			"postFlush",
 		];
@@ -81,23 +81,27 @@ class FileListener implements EventSubscriber
 	 */
 	public function postPersist(LifecycleEventArgs $args)
 	{
+		$this->saveFile($args);
+	}
+
+	public function preUpdate(LifecycleEventArgs $args)
+	{
 		$entity = $args->getEntity();
 
 		if (!$entity instanceof IFileEntity) {
 			return;
 		}
 
-		if ($entity->hasTemporaryFile()) {
-			$entity->setBaseDirectoryPath($this->dataDir);
-			$entity->setBaseDirectoryUrl($this->dataUrl);
-			$entity->saveFile();
+		$this->setToDelete($entity);
+	}
 
-			$this->em->flush();
-
-			if ($entity->getOnAfterSave()) {
-				call_user_func($entity->getOnAfterSave(), $entity);
-			}
-		}
+	/**
+	 * @param LifecycleEventArgs $args
+	 * @throws \Exception
+	 */
+	public function postUpdate(LifecycleEventArgs $args)
+	{
+		$this->saveFile($args);
 	}
 
 	public function preRemove(LifecycleEventArgs $eventArgs)
@@ -107,15 +111,7 @@ class FileListener implements EventSubscriber
 			return;
 		}
 
-		// zabespeci nacteni entity pokud jde o proxy, v opacnem pripade
-		// by v post flush nebylo mozne ziskat path lebo by doctrine nenasla entitu v db
-		$entity->getPath();
-
-
-		// smazane file entity si ulozime a pak je v post flush pouzijeme pro smazani jejich soboru
-		// post remove nelze pouzit lebo sa ne vzdy zavola (treba pri smazani pres orphanremoval)
-		// https://github.com/doctrine/orm/issues/6256
-		$this->filesToDelete[] = $entity;
+		$this->setToDelete($entity);
 	}
 
 	public function postFlush()
@@ -131,4 +127,43 @@ class FileListener implements EventSubscriber
 		$this->filesToDelete = [];
 	}
 
+	protected function saveFile(LifecycleEventArgs $args)
+	{
+		$entity = $args->getEntity();
+
+		if (!$entity instanceof IFileEntity) {
+			return;
+		}
+
+		if ($entity->hasTemporaryFile()) {
+			$entity->setBaseDirectoryPath($this->dataDir);
+			$entity->setBaseDirectoryUrl($this->dataUrl);
+			$entity->saveFile();
+			
+			$this->em->createQuery('UPDATE ' . get_class($entity) . ' e SET e.filename = :filename WHERE e.id = :id')
+				->setParameters([
+					'filename' => $entity->getFilename(),
+					'id' => $entity->getId()
+				])
+				->execute();
+
+			if ($entity->getOnAfterSave()) {
+				call_user_func($entity->getOnAfterSave(), $entity);
+			}
+		}
+	}
+
+	protected function setToDelete($entity)
+	{
+		// zabespeci nacteni entity pokud jde o proxy, v opacnem pripade
+		// by v post flush nebylo mozne ziskat path lebo by doctrine nenasla entitu v db
+		$entity->getPath();
+
+		// smazane file entity si ulozime a pak je v post flush pouzijeme pro smazani jejich souboru
+		// post remove nelze pouzit lebo sa ne vzdy zavola (treba pri smazani pres orphanremoval)
+		// https://github.com/doctrine/orm/issues/6256
+		if (!isset($this->filesToDelete[$entity->getId()])) {
+			$this->filesToDelete[$entity->getId()] = clone $entity;
+		}
+	}
 }
