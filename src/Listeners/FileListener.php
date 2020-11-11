@@ -54,7 +54,6 @@ class FileListener implements EventSubscriber
 		return [
 			"postLoad",
 			"postPersist",
-			"postUpdate",
 			"preRemove",
 			"postFlush",
 		];
@@ -87,38 +86,13 @@ class FileListener implements EventSubscriber
 			return;
 		}
 
-		$this->saveFile($args->getEntity());
-	}
-
-	public function preUpdate(LifecycleEventArgs $args)
-	{
-		$entity = $args->getEntity();
-
-		if (!$entity instanceof IFileEntity) {
-			return;
-		}
-
-		$this->setToDelete($entity);
-	}
-
-	/**
-	 * @param LifecycleEventArgs $args
-	 * @throws \Exception
-	 */
-	public function postUpdate(LifecycleEventArgs $args)
-	{
-		$entity = $args->getEntity();
-
-		if (!$entity instanceof IFileEntity) {
-			return;
-		}
-
-		$this->saveFile($args->getEntity());
+		$this->saveFile($entity);
 	}
 
 	public function preRemove(LifecycleEventArgs $eventArgs)
 	{
 		$entity = $eventArgs->getEntity();
+		
 		if (!$entity instanceof IFileEntity) {
 			return;
 		}
@@ -168,8 +142,6 @@ class FileListener implements EventSubscriber
 		// smazane file entity si ulozime a pak je v post flush pouzijeme pro smazani jejich souboru
 		// post remove nelze pouzit lebo sa ne vzdy zavola (treba pri smazani pres orphanremoval)
 		// https://github.com/doctrine/orm/issues/6256
-		if (!isset($this->filesToDelete[$entity->getId()])) {
-			$this->filesToDelete[$entity->getId()] = clone $entity;
-		}
+		$this->filesToDelete[] = $entity;
 	}
 }
