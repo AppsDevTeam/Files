@@ -93,6 +93,9 @@ class FileListener implements EventSubscriber
 			return;
 		}
 
+		$entity->setBaseDirectoryPath($this->dataDir);
+		$entity->setBaseDirectoryUrl($this->dataUrl);
+
 		$this->saveFile($entity);
 	}
 
@@ -111,7 +114,7 @@ class FileListener implements EventSubscriber
 	}
 
 	/**
-	 * 
+	 *
 	 */
 	public function postFlush()
 	{
