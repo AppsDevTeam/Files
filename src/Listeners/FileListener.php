@@ -1,9 +1,11 @@
 <?php
+
 declare(strict_types=1);
 
 namespace ADT\Files\Listeners;
 
 use ADT\Files\Entities\IFileEntity;
+use ADT\Files\Helpers;
 use Doctrine\Common\EventManager;
 use Doctrine\Common\EventSubscriber;
 use Doctrine\Common\Util\ClassUtils;
@@ -32,6 +34,11 @@ class FileListener implements EventSubscriber
 	 * @var IFileEntity[]
 	 */
 	protected $filesToDelete = [];
+
+	/**
+	 * @var callable
+	 */
+	protected $onAfterDelete;
 
 	/**
 	 * FileListener constructor.
@@ -89,6 +96,9 @@ class FileListener implements EventSubscriber
 		$this->saveFile($entity);
 	}
 
+	/**
+	 * @param LifecycleEventArgs $eventArgs
+	 */
 	public function preRemove(LifecycleEventArgs $eventArgs)
 	{
 		$entity = $eventArgs->getEntity();
@@ -100,39 +110,65 @@ class FileListener implements EventSubscriber
 		$this->setToDelete($entity);
 	}
 
+	/**
+	 * 
+	 */
 	public function postFlush()
 	{
 		/** @var IFileEntity $entity */
 		foreach ($this->filesToDelete as $entity) {
 			@unlink($entity->getPath());
 
-			if ($entity->getOnAfterDelete()) {
-				call_user_func($entity->getOnAfterDelete(), $entity);
+			if ($this->onAfterDelete) {
+				$this->onAfterDelete->call($this, $entity);
 			}
 		}
 		$this->filesToDelete = [];
 	}
 
+	/**
+	 * @param IFileEntity $entity
+	 * @throws \Exception
+	 */
 	protected function saveFile(IFileEntity $entity)
 	{
-		if ($entity->hasTemporaryFile()) {
-			$entity->setBaseDirectoryPath($this->dataDir);
-			$entity->setBaseDirectoryUrl($this->dataUrl);
-			$entity->saveFile();
-			
-			$this->em->createQuery('UPDATE ' . get_class($entity) . ' e SET e.filename = :filename WHERE e.id = :id')
-				->setParameters([
-					'filename' => $entity->getFilename(),
-					'id' => $entity->getId()
-				])
-				->execute();
+		if (!$entity->hasTemporaryFileOrContent()) {
+			throw new \Exception('Entity does not have a temporary file or content set.');
+		}
+		
+		$filename = Helpers::getName($entity->getOriginalName(), $entity->getId());
 
-			if ($entity->getOnAfterSave()) {
-				call_user_func($entity->getOnAfterSave(), $entity);
+		$entity->setFilename($filename);
+
+		@mkdir(dirname($this->dataDir  . '/' . $filename), 0775, true);
+		if ($entity->getTemporaryFile()) {
+			if (!rename($entity->getTemporaryFile(), $this->dataDir  . '/' . $filename)) {
+				throw new \Exception('File was not uploaded.');
 			}
+		}
+		else {
+			if (file_put_contents($this->dataDir  . '/' . $filename, $entity->getTemporaryContent()) === false) {
+				throw new \Exception('File was not uploaded.');
+			}
+		}
+
+		chmod($this->dataDir  . '/' . $filename, 0664);
+		
+		$this->em->createQuery('UPDATE ' . get_class($entity) . ' e SET e.filename = :filename WHERE e.id = :id')
+			->setParameters([
+				'filename' => $entity->getFilename(),
+				'id' => $entity->getId()
+			])
+			->execute();
+
+		if ($entity->getOnAfterSave()) {
+			call_user_func($entity->getOnAfterSave(), $entity);
 		}
 	}
 
+	/**
+	 * @param IFileEntity $entity
+	 */
 	protected function setToDelete(IFileEntity $entity)
 	{
 		// zabespeci nacteni entity pokud jde o proxy, v opacnem pripade
