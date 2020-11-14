@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace ADT\Files\Entities;
@@ -30,6 +31,11 @@ trait TFileEntity
 	 * @var string
 	 */
 	protected $temporaryFile;
+
+	/**
+	 * @var string
+	 */
+	protected $temporaryContent;
 
 	/**
 	 * @var string
@@ -73,51 +79,37 @@ trait TFileEntity
 		return $this;
 	}
 
-	public function setTemporaryContent(string $content, string $originalName): self
-	{
-		$temp = tmpfile();
-		fwrite($temp, $content);
-
-		$this->temporaryFile = $temp;
-		$this->originalName = $originalName;
-		return $this;
-	}
-
 	public function setTemporaryFile(string $temporaryFile, string $originalName): self
 	{
 		if (!is_file($temporaryFile)) {
 			throw new \Exception('Temporary file not found');
 		}
 
-		$this->temporaryFile = fopen($temporaryFile, 'r');
+		$this->temporaryFile = $temporaryFile;
 		$this->originalName = $originalName;
 		return $this;
 	}
 
-	public function hasTemporaryFile(): bool
+	public function getTemporaryFile(): ?string
 	{
-		return (bool) $this->temporaryFile;
+		return $this->temporaryFile;
 	}
 
-	public function saveFile(): self
+	public function setTemporaryContent(string $content, string $originalName): self
 	{
-		if (empty($this->path)) {
-			throw new \Exception('Use File::setPath() method before calling this method.');
-		}
-
-		$this->filename = Helpers::getName($this->originalName, $this->id);
-
-		@mkdir(dirname($this->path  . '/' . $this->filename), 0775, true);
-		if (!rename(stream_get_meta_data($this->temporaryFile)['uri'], $this->path  . '/' . $this->filename)) {
-			throw new \Exception('File was not uploaded.');
-		}
-
-		fclose($this->temporaryFile);
-
-		chmod($this->path  . '/' . $this->filename, 0664);
-
-		$this->temporaryFile = null;
+		$this->temporaryContent = $content;
+		$this->originalName = $originalName;
 		return $this;
+	}
+	
+	public function getTemporaryContent(): ?string
+	{
+		return $this->temporaryContent;
+	}
+
+	public function hasTemporaryFileOrContent(): bool
+	{
+		return $this->temporaryFile || $this->temporaryContent;
 	}
 
 	public function setOnAfterSave(callable $callback): self
@@ -129,6 +121,12 @@ trait TFileEntity
 	public function getOnAfterSave(): ?callable
 	{
 		return $this->onAfterSave;
+	}
+
+	public function setFilename(string $filename): self
+	{
+		$this->filename = $filename;
+		return $this;
 	}
 
 	public function getFilename(): string
@@ -144,11 +142,5 @@ trait TFileEntity
 	public function getOnAfterDelete(): ?callable
 	{
 		return $this->onAfterDelete;
-	}
-
-	public function setOnAfterDelete(callable $onAfterDelete): self
-	{
-		$this->onAfterDelete = $onAfterDelete;
-		return $this;
 	}
 }
