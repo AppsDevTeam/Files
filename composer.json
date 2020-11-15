@@ -18,15 +18,11 @@
 	},
 	"require": {
 		"nette/utils": "^2.2 || ^3.0",
-		"steevanb/doctrine-read-only-hydrator": "^2.2"
+		"doctrine/orm": "^2.2"
 	},
 	"autoload": {
 		"psr-4": {
 			"ADT\\Files\\": "src/"
-		},
-		"files": [
-			"../../steevanb/doctrine-read-only-hydrator/Hydrator/SimpleObjectHydrator.php",
-			"../../steevanb/doctrine-read-only-hydrator/Hydrator/ReadOnlyHydrator.php"
-		]
+		}
 	}
 }

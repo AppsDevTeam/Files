@@ -1,14 +1,20 @@
 <?php
 
+declare(strict_types=1);
+
 namespace ADT\Files\Listeners;
 
-use ADT\Files\Entities\FileTrait;
+use ADT\Files\Entities\IFileEntity;
+use ADT\Files\Helpers;
+use Doctrine\Common\EventManager;
+use Doctrine\Common\EventSubscriber;
+use Doctrine\Common\Util\ClassUtils;
+use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Event\LifecycleEventArgs;
+use steevanb\DoctrineReadOnlyHydrator\Hydrator\ReadOnlyHydrator;
 
-class FileListener implements \Kdyby\Events\Subscriber
+class FileListener implements EventSubscriber
 {
-	use \Nette\SmartObject;
-
 	/**
 	 * @var string
 	 */
@@ -20,42 +26,43 @@ class FileListener implements \Kdyby\Events\Subscriber
 	protected $dataUrl;
 
 	/**
-	 * @var string
-	 */
-	protected $fileEntityClass;
-
-	/**
-	 * @var \Kdyby\Doctrine\EntityManager
+	 * @var EntityManagerInterface
 	 */
 	protected $em;
 
-	protected $file;
+	/**
+	 * @var IFileEntity[]
+	 */
+	protected $filesToDelete = [];
+
+	/**
+	 * @var callable
+	 */
+	protected $onAfterDelete;
 
 	/**
 	 * FileListener constructor.
 	 * @param string $dataDir
 	 * @param string $dataUrl
-	 * @param \Kdyby\Events\EventManager $evm
-	 * @param \Kdyby\Doctrine\EntityManager $em
+	 * @param EntityManagerInterface $em
 	 */
-	public function __construct(string $dataDir, string $dataUrl, string $fileEntityClass, \Kdyby\Events\EventManager $evm, \Kdyby\Doctrine\EntityManager $em)
+	public function __construct(string $dataDir, string $dataUrl, EntityManagerInterface $em)
 	{
 		$this->dataDir = $dataDir;
 		$this->dataUrl = $dataUrl;
-		$this->fileEntityClass = $fileEntityClass;
-		$evm->addEventSubscriber($this);
 		$this->em = $em;
 	}
 
 	/**
 	 * @return array|string[]
 	 */
-	public function getSubscribedEvents() {
+	public function getSubscribedEvents()
+	{
 		return [
 			"postLoad",
 			"postPersist",
 			"preRemove",
-			"postRemove",
+			"postFlush",
 		];
 	}
 
@@ -66,12 +73,12 @@ class FileListener implements \Kdyby\Events\Subscriber
 	{
 		$entity = $args->getEntity();
 
-		if (!$entity instanceof $this->fileEntityClass) {
+		if (!$entity instanceof IFileEntity) {
 			return;
 		}
 
-		$entity->setPath($this->dataDir)
-			->setUrl($this->dataUrl);
+		$entity->setBaseDirectoryPath($this->dataDir);
+		$entity->setBaseDirectoryUrl($this->dataUrl);
 	}
 
 	/**
@@ -82,53 +89,98 @@ class FileListener implements \Kdyby\Events\Subscriber
 	{
 		$entity = $args->getEntity();
 
-		if (!$entity instanceof $this->fileEntityClass) {
+		if (!$entity instanceof IFileEntity) {
 			return;
 		}
 
-		if ($entity->hasTemporaryFile()) {
-			$entity
-				->setPath($this->dataDir)
-				->setUrl($this->dataUrl)
-				->saveFile();
+		$entity->setBaseDirectoryPath($this->dataDir);
+		$entity->setBaseDirectoryUrl($this->dataUrl);
 
-			$this->em->flush($entity);
-
-			if ($entity->getOnAfterSave()) {
-				call_user_func($entity->getOnAfterSave(), $entity);
-			}
-		}
+		$this->saveFile($entity);
 	}
 
-	public function preRemove(\Doctrine\ORM\Event\LifecycleEventArgs $eventArgs)
+	/**
+	 * @param LifecycleEventArgs $eventArgs
+	 */
+	public function preRemove(LifecycleEventArgs $eventArgs)
 	{
 		$entity = $eventArgs->getEntity();
-
-		if (!$entity instanceof $this->fileEntityClass) {
+		
+		if (!$entity instanceof IFileEntity) {
 			return;
 		}
 
-		$this->file = $this->em->createQueryBuilder()
-			->select('e')
-			->from($this->fileEntityClass, 'e')
-			->where('e.id = :id')
-			->setParameter('id', $entity->getId())
-			->getQuery()
-			->getResult('readOnly')[0];
+		$this->setToDelete($entity);
 	}
 
-	public function postRemove(\Doctrine\ORM\Event\LifecycleEventArgs $eventArgs)
+	/**
+	 *
+	 */
+	public function postFlush()
 	{
-		if (!$this->file) {
-			return;
+		/** @var IFileEntity $entity */
+		foreach ($this->filesToDelete as $entity) {
+			@unlink($entity->getPath());
+
+			if ($this->onAfterDelete) {
+				$this->onAfterDelete->call($this, $entity);
+			}
+		}
+		$this->filesToDelete = [];
+	}
+
+	/**
+	 * @param IFileEntity $entity
+	 * @throws \Exception
+	 */
+	protected function saveFile(IFileEntity $entity)
+	{
+		if (!$entity->hasTemporaryFileOrContent()) {
+			throw new \Exception('Entity does not have a temporary file or content set.');
+		}
+		
+		$filename = Helpers::getName($entity->getOriginalName(), $entity->getId());
+
+		$entity->setFilename($filename);
+
+		@mkdir(dirname($this->dataDir  . '/' . $filename), 0775, true);
+		if ($entity->getTemporaryFile()) {
+			if (!rename($entity->getTemporaryFile(), $this->dataDir  . '/' . $filename)) {
+				throw new \Exception('File was not uploaded.');
+			}
+		}
+		else {
+			if (file_put_contents($this->dataDir  . '/' . $filename, $entity->getTemporaryContent()) === false) {
+				throw new \Exception('File was not uploaded.');
+			}
 		}
 
-		@unlink($this->file->getPath());
+		chmod($this->dataDir  . '/' . $filename, 0664);
+		
+		$this->em->createQuery('UPDATE ' . get_class($entity) . ' e SET e.filename = :filename WHERE e.id = :id')
+			->setParameters([
+				'filename' => $entity->getFilename(),
+				'id' => $entity->getId()
+			])
+			->execute();
 
-		if ($this->file->getOnAfterDelete()) {
-			call_user_func($this->file->getOnAfterDelete(), $this->file);
+		if ($entity->getOnAfterSave()) {
+			call_user_func($entity->getOnAfterSave(), $entity);
 		}
+	}
 
-		$this->file = null;
+	/**
+	 * @param IFileEntity $entity
+	 */
+	protected function setToDelete(IFileEntity $entity)
+	{
+		// zabespeci nacteni entity pokud jde o proxy, v opacnem pripade
+		// by v post flush nebylo mozne ziskat path lebo by doctrine nenasla entitu v db
+		$entity->getPath();
+
+		// smazane file entity si ulozime a pak je v post flush pouzijeme pro smazani jejich souboru
+		// post remove nelze pouzit lebo sa ne vzdy zavola (treba pri smazani pres orphanremoval)
+		// https://github.com/doctrine/orm/issues/6256
+		$this->filesToDelete[] = $entity;
 	}
 }
