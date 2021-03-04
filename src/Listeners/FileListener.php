@@ -142,8 +142,11 @@ class FileListener implements EventSubscriber
 		$filename = Helpers::getName($entity->getOriginalName(), $entity->getId());
 
 		$entity->setFilename($filename);
-
-		@mkdir(dirname($this->dataDir  . '/' . $filename), 0775, true);
+		
+		@mkdir(dirname($this->dataDir  . '/' . $filename), 0770, true);
+		// we must use chmod because umask is applied to the permissions in mkdir command
+		// default umask is mostly 0022, which executes 0770 & ~0022 and results in 0750
+		chmod(dirname($this->dataDir  . '/' . $filename), 0770);
 		if ($entity->getTemporaryFile()) {
 			if (!rename($entity->getTemporaryFile(), $this->dataDir  . '/' . $filename)) {
 				throw new \Exception('File was not uploaded.');
@@ -154,8 +157,7 @@ class FileListener implements EventSubscriber
 				throw new \Exception('File was not uploaded.');
 			}
 		}
-
-		chmod($this->dataDir  . '/' . $filename, 0664);
+		chmod($this->dataDir  . '/' . $filename, 0660);
 		
 		$this->em->createQuery('UPDATE ' . get_class($entity) . ' e SET e.filename = :filename WHERE e.id = :id')
 			->setParameters([
