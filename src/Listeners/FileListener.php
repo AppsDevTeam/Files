@@ -144,12 +144,12 @@ class FileListener implements EventSubscriber
 		$entity->setFilename($filename);
 		
 		// we don't use file_exists because it's not an atomic operation
-		// that's why we rather use @ee
-		@mkdir(dirname($this->dataDir  . '/' . $filename), 0770, true);
-		// we must use chmod because umask is applied to the permissions in mkdir command
-		// default umask is mostly 0022, which executes 0770 & ~0022 and results in 0750
-		// we use @ because directory can be created by different user and in that case chmod is not allowed
-		@chmod(dirname($this->dataDir  . '/' . $filename), 0770);
+		// that's why we rather use @
+		if (@mkdir(dirname($this->dataDir  . '/' . $filename), 0770, true)) {
+			// we must use chmod because umask is applied to the permissions in mkdir command
+			// default umask is mostly 0022, which executes 0770 & ~0022 and results in 0750
+			chmod(dirname($this->dataDir  . '/' . $filename), 0770);
+		}
 		if ($entity->getTemporaryFile()) {
 			if (!rename($entity->getTemporaryFile(), $this->dataDir  . '/' . $filename)) {
 				throw new \Exception('File was not uploaded.');
