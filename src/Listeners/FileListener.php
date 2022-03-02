@@ -105,7 +105,7 @@ class FileListener implements EventSubscriber
 	public function preRemove(LifecycleEventArgs $eventArgs)
 	{
 		$entity = $eventArgs->getEntity();
-		
+
 		if (!$entity instanceof IFileEntity) {
 			return;
 		}
@@ -135,7 +135,7 @@ class FileListener implements EventSubscriber
 	 */
 	protected function saveFile(IFileEntity $entity)
 	{
-		if (!$entity->hasTemporaryFileOrContent()) {
+		if (!$entity->isValid()) {
 			throw new \Exception('Entity does not have a temporary file or content set.');
 		}
 		
@@ -152,6 +152,11 @@ class FileListener implements EventSubscriber
 		}
 		if ($entity->getTemporaryFile()) {
 			if (!rename($entity->getTemporaryFile(), $this->dataDir  . '/' . $filename)) {
+				throw new \Exception('File was not uploaded.');
+			}
+		}
+		elseif ($entity->getStream()) {
+			if (!copy($entity->getStream(), $this->dataDir  . '/' . $filename)) {
 				throw new \Exception('File was not uploaded.');
 			}
 		}

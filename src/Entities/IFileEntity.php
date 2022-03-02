@@ -22,7 +22,11 @@ interface IFileEntity
 
 	public function getTemporaryContent(): ?string;
 
-	public function hasTemporaryFileOrContent(): bool;
+	public function setStream(string $stream, string $originalName): self;
+
+	public function getStream(): ?string;
+
+	public function isValid(): bool;
 
 	public function setOnAfterSave(callable $callback): self;
 
