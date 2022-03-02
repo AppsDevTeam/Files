@@ -118,7 +118,7 @@ trait TFileEntity
 			throw new \Exception($stream. ' is not a stream.');
 		}
 
-		$this->temporaryFile = $temporaryFile;
+		$this->stream = $stream;
 		$this->originalName = $originalName;
 		return $this;
 	}
