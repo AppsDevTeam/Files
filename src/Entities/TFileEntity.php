@@ -40,6 +40,11 @@ trait TFileEntity
 	/**
 	 * @var string
 	 */
+	protected $stream;
+
+	/**
+	 * @var string
+	 */
 	protected $path;
 
 	/**
@@ -82,7 +87,7 @@ trait TFileEntity
 	public function setTemporaryFile(string $temporaryFile, string $originalName): self
 	{
 		if (!is_file($temporaryFile)) {
-			throw new \Exception('Temporary file not found');
+			throw new \Exception($temporaryFile . ' is not a file.');
 		}
 
 		$this->temporaryFile = $temporaryFile;
@@ -107,9 +112,25 @@ trait TFileEntity
 		return $this->temporaryContent;
 	}
 
-	public function hasTemporaryFileOrContent(): bool
+	public function setStream(string $stream, string $originalName): self
 	{
-		return $this->temporaryFile || $this->temporaryContent;
+		if (!@fopen($stream, 'r')) {
+			throw new \Exception($stream. ' is not a stream.');
+		}
+
+		$this->temporaryFile = $temporaryFile;
+		$this->originalName = $originalName;
+		return $this;
+	}
+
+	public function getStream(): ?string
+	{
+		return $this->stream;
+	}
+
+	public function isValid(): bool
+	{
+		return $this->temporaryFile || $this->temporaryContent || $this->stream;
 	}
 
 	public function setOnAfterSave(callable $callback): self
