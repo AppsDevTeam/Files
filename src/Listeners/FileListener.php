@@ -138,11 +138,11 @@ class FileListener implements EventSubscriber
 		if (!$entity->isValid()) {
 			throw new \Exception('Entity does not have a temporary file or content set.');
 		}
-		
+
 		$filename = Helpers::getName($entity->getOriginalName(), $entity->getId());
 
 		$entity->setFilename($filename);
-		
+
 		// we don't use file_exists because it's not an atomic operation
 		// that's why we rather use @
 		if (@mkdir(dirname($this->dataDir  . '/' . $filename), 0770, true)) {
@@ -166,11 +166,12 @@ class FileListener implements EventSubscriber
 			}
 		}
 		chmod($this->dataDir  . '/' . $filename, 0660);
-		
-		$this->em->createQuery('UPDATE ' . get_class($entity) . ' e SET e.filename = :filename WHERE e.id = :id')
+
+		$this->em->createQuery('UPDATE ' . get_class($entity) . ' e SET e.filename = :filename, e.size = :size WHERE e.id = :id')
 			->setParameters([
+				'id' => $entity->getId(),
 				'filename' => $entity->getFilename(),
-				'id' => $entity->getId()
+				'size' => filesize($this->dataDir . '/' . $entity->getFilename())
 			])
 			->execute();
 
