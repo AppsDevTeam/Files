@@ -28,6 +28,13 @@ trait TFileEntity
 	protected $filename;
 
 	/**
+	 * @var int
+	 *
+	 * @ORM\Column(type="integer", nullable=true)
+	 */
+	protected ?int $size = null;
+
+	/**
 	 * @var string
 	 */
 	protected $temporaryFile;
@@ -118,7 +125,7 @@ trait TFileEntity
 			throw new \Exception($stream. ' is not a stream.');
 		}
 
-		$this->temporaryFile = $temporaryFile;
+		$this->stream = $stream;
 		$this->originalName = $originalName;
 		return $this;
 	}
@@ -163,5 +170,16 @@ trait TFileEntity
 	public function getOnAfterDelete(): ?callable
 	{
 		return $this->onAfterDelete;
+	}
+
+	public function getSize(): int
+	{
+		return $this->size;
+	}
+
+	public function setSize(int $size): self
+	{
+		$this->size = $size;
+		return $this;
 	}
 }
