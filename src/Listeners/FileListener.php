@@ -11,6 +11,7 @@ use Doctrine\Common\EventSubscriber;
 use Doctrine\Common\Util\ClassUtils;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Event\LifecycleEventArgs;
+use Gedmo\SoftDeleteable\SoftDeleteable;
 use steevanb\DoctrineReadOnlyHydrator\Hydrator\ReadOnlyHydrator;
 
 class FileListener implements EventSubscriber
@@ -109,8 +110,19 @@ class FileListener implements EventSubscriber
 		if (!$entity instanceof IFileEntity) {
 			return;
 		}
+		
+		if ($entity instanceof SoftDeleteable) {
+			return;
+		}
 
-		$this->setToDelete($entity);
+		// zabespeci nacteni entity pokud jde o proxy, v opacnem pripade
+		// by v post flush nebylo mozne ziskat path lebo by doctrine nenasla entitu v db
+		$entity->getPath();
+
+		// smazane file entity si ulozime a pak je v post flush pouzijeme pro smazani jejich souboru
+		// post remove nelze pouzit lebo sa ne vzdy zavola (treba pri smazani pres orphanremoval)
+		// https://github.com/doctrine/orm/issues/6256
+		$this->filesToDelete[] = $entity;
 	}
 
 	/**
@@ -178,20 +190,5 @@ class FileListener implements EventSubscriber
 		if ($entity->getOnAfterSave()) {
 			call_user_func($entity->getOnAfterSave(), $entity);
 		}
-	}
-
-	/**
-	 * @param IFileEntity $entity
-	 */
-	protected function setToDelete(IFileEntity $entity)
-	{
-		// zabespeci nacteni entity pokud jde o proxy, v opacnem pripade
-		// by v post flush nebylo mozne ziskat path lebo by doctrine nenasla entitu v db
-		$entity->getPath();
-
-		// smazane file entity si ulozime a pak je v post flush pouzijeme pro smazani jejich souboru
-		// post remove nelze pouzit lebo sa ne vzdy zavola (treba pri smazani pres orphanremoval)
-		// https://github.com/doctrine/orm/issues/6256
-		$this->filesToDelete[] = $entity;
 	}
 }
