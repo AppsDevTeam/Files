@@ -18,6 +18,7 @@ trait TFileEntity
 	 *
 	 * @ORM\Column(type="string", nullable=false)
 	 */
+	#[ORM\Column(type: 'string')]
 	protected $originalName;
 
 	/**
@@ -25,6 +26,7 @@ trait TFileEntity
 	 *
 	 * @ORM\Column(type="string", nullable=true)
 	 */
+	#[ORM\Column(type: 'string', nullable: true)]
 	protected $filename;
 
 	/**
@@ -32,6 +34,7 @@ trait TFileEntity
 	 *
 	 * @ORM\Column(type="integer", nullable=true)
 	 */
+	#[ORM\Column(type: 'integer', nullable: true)]
 	protected ?int $size = null;
 
 	/**
