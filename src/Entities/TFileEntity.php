@@ -72,9 +72,15 @@ trait TFileEntity
 	 */
 	protected $onAfterDelete;
 
+	/**
+	 * @var callable
+	 */
+	protected $fileNameCallback;
+
 	public function getPath(): string
 	{
-		return $this->path . '/' . $this->filename;
+
+		return $this->path . '/' . $this->getFilename();
 	}
 
 	public function setBaseDirectoryPath(string $path): self
@@ -85,7 +91,8 @@ trait TFileEntity
 
 	public function getUrl(): string
 	{
-		return $this->url . '/' . $this->filename;
+
+		return $this->url . '/' . $this->getFilename();
 	}
 
 	public function setBaseDirectoryUrl(string $url): self
@@ -156,12 +163,16 @@ trait TFileEntity
 
 	public function setFilename(string $filename): self
 	{
+
 		$this->filename = $filename;
 		return $this;
 	}
 
 	public function getFilename(): string
 	{
+		if(isset($this->fileNameCallback)) {
+			$this->fileNameCallback($this->path);
+		}
 		return $this->filename;
 	}
 
@@ -185,4 +196,15 @@ trait TFileEntity
 		$this->size = $size;
 		return $this;
 	}
+
+	public function getFileNameCallback(): ?callable {
+		return $this->fileNameCallback;
+	}
+
+
+	public function setFileNameCallback(?callable $fileNameCallback): self {
+		$this->fileNameCallback = $fileNameCallback;
+		return $this;
+	}
+
 }

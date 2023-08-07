@@ -42,6 +42,23 @@ class FileListener implements EventSubscriber
 	protected $onAfterDelete;
 
 	/**
+	 * @var callable
+	 */
+	protected $filenameCallback;
+
+
+	public function getFilenameCallback(): callable
+	{
+		return $this->filenameCallback;
+	}
+
+	public function setFilenameCallback(callable $filenameCallback): self
+	{
+		$this->filenameCallback = $filenameCallback;
+		return $this;
+	}
+
+	/**
 	 * FileListener constructor.
 	 * @param string $dataDir
 	 * @param string $dataUrl
@@ -80,6 +97,7 @@ class FileListener implements EventSubscriber
 
 		$entity->setBaseDirectoryPath($this->dataDir);
 		$entity->setBaseDirectoryUrl($this->dataUrl);
+		$entity->setFilenameCallback($this->filenameCallback);
 	}
 
 	/**
@@ -191,4 +209,8 @@ class FileListener implements EventSubscriber
 			call_user_func($entity->getOnAfterSave(), $entity);
 		}
 	}
+
+
+
+
 }

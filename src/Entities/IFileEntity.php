@@ -39,4 +39,8 @@ interface IFileEntity
 	public function getOriginalName(): string;
 
 	public function getOnAfterDelete(): ?callable;
+
+	public function getFilenameCallback(): ?callable;
+
+	public function setFilenameCallback(?callable $filenameCallback): self;
 }
