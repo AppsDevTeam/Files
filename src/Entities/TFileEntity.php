@@ -55,7 +55,7 @@ trait TFileEntity
 	/**
 	 * @var string
 	 */
-	protected $path;
+	protected $filepath;
 
 	/**
 	 * @var string
@@ -77,7 +77,7 @@ trait TFileEntity
 	 */
 	protected $fileNameCallback;
 
-	public function getPath(): string
+	public function getFilepath(): string
 	{
 
 		return $this->path . '/' . $this->getFilename();

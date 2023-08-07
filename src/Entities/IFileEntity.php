@@ -6,7 +6,7 @@ namespace ADT\Files\Entities;
 
 interface IFileEntity
 {
-	public function getPath(): string;
+	public function getFilepath(): string;
 
 	public function setBaseDirectoryPath(string $path): self;
 
