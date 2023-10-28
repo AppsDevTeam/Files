@@ -41,11 +41,18 @@ class FileListener implements EventSubscriber
 	 */
 	protected $onAfterDelete;
 
+	protected $ignoreMissingFiles = false;
+
 	public function __construct(string $dataDir, ?string $dataUrl, EntityManagerInterface $em)
 	{
 		$this->dataDir = $dataDir;
 		$this->dataUrl = $dataUrl;
 		$this->em = $em;
+	}
+
+	public function ignoreMissingFiles($ignoreMissingFiles)
+	{
+		$this->ignoreMissingFiles = $ignoreMissingFiles;
 	}
 
 	/**
@@ -72,10 +79,7 @@ class FileListener implements EventSubscriber
 			return;
 		}
 
-		$entity->setBaseDirectoryPath($this->dataDir);
-		if ($this->dataUrl) {
-			$entity->setBaseDirectoryUrl($this->dataUrl);
-		}
+		$this->setupEntity($entity);
 	}
 
 	/**
@@ -90,10 +94,7 @@ class FileListener implements EventSubscriber
 			return;
 		}
 
-		$entity->setBaseDirectoryPath($this->dataDir);
-		if ($this->dataUrl) {
-			$entity->setBaseDirectoryUrl($this->dataUrl);
-		}
+		$this->setupEntity($entity);
 
 		$this->saveFile($entity);
 	}
@@ -187,6 +188,17 @@ class FileListener implements EventSubscriber
 
 		if ($entity->getOnAfterSave()) {
 			call_user_func($entity->getOnAfterSave(), $entity);
+		}
+	}
+
+	protected function setupEntity(IFileEntity $entity): void
+	{
+		$entity->setBaseDirectoryPath($this->dataDir);
+		if ($this->dataUrl) {
+			$entity->setBaseDirectoryUrl($this->dataUrl);
+		}
+		if ($this->ignoreMissingFiles) {
+			$entity->ignoreMissingFile();
 		}
 	}
 }
