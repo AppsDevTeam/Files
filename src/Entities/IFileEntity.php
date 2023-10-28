@@ -8,6 +8,8 @@ interface IFileEntity
 {
 	public function getPath(): string;
 
+	public function getContents(): string;
+
 	public function setBaseDirectoryPath(string $path): self;
 
 	public function getUrl(): string;
@@ -39,4 +41,6 @@ interface IFileEntity
 	public function getOriginalName(): string;
 
 	public function getOnAfterDelete(): ?callable;
+
+	public function ignoreMissingFile(): void;
 }
