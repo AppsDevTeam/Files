@@ -72,6 +72,8 @@ trait TFileEntity
 	 */
 	protected $onAfterDelete;
 
+	protected $ignoreMissingFile = false;
+
 	public function getPath(): string
 	{
 		return $this->path . '/' . $this->filename;
@@ -79,6 +81,10 @@ trait TFileEntity
 
 	public function getContents(): string
 	{
+		if ($this->ignoreMissingFile) {
+			return (string) @file_get_contents($this->getPath());
+		}
+
 		return file_get_contents($this->getPath());
 	}
 
@@ -193,5 +199,10 @@ trait TFileEntity
 	{
 		$this->size = $size;
 		return $this;
+	}
+
+	public function ignoreMissingFile(): void
+	{
+		$this->ignoreMissingFile = true;
 	}
 }
