@@ -77,6 +77,11 @@ trait TFileEntity
 		return $this->path . '/' . $this->filename;
 	}
 
+	public function getContents(): string
+	{
+		return file_get_contents($this->getPath());
+	}
+
 	public function setBaseDirectoryPath(string $path): self
 	{
 		$this->path = $path;
@@ -85,6 +90,10 @@ trait TFileEntity
 
 	public function getUrl(): string
 	{
+		if (!$this->url) {
+			throw new \Exception('Url is not set.');
+		}
+
 		return $this->url . '/' . $this->filename;
 	}
 
