@@ -41,13 +41,7 @@ class FileListener implements EventSubscriber
 	 */
 	protected $onAfterDelete;
 
-	/**
-	 * FileListener constructor.
-	 * @param string $dataDir
-	 * @param string $dataUrl
-	 * @param EntityManagerInterface $em
-	 */
-	public function __construct(string $dataDir, string $dataUrl, EntityManagerInterface $em)
+	public function __construct(string $dataDir, ?string $dataUrl, EntityManagerInterface $em)
 	{
 		$this->dataDir = $dataDir;
 		$this->dataUrl = $dataUrl;
@@ -79,7 +73,9 @@ class FileListener implements EventSubscriber
 		}
 
 		$entity->setBaseDirectoryPath($this->dataDir);
-		$entity->setBaseDirectoryUrl($this->dataUrl);
+		if ($this->dataUrl) {
+			$entity->setBaseDirectoryUrl($this->dataUrl);
+		}
 	}
 
 	/**
@@ -95,7 +91,9 @@ class FileListener implements EventSubscriber
 		}
 
 		$entity->setBaseDirectoryPath($this->dataDir);
-		$entity->setBaseDirectoryUrl($this->dataUrl);
+		if ($this->dataUrl) {
+			$entity->setBaseDirectoryUrl($this->dataUrl);
+		}
 
 		$this->saveFile($entity);
 	}
