@@ -178,11 +178,12 @@ class FileListener implements EventSubscriber
 		}
 		chmod($this->dataDir  . '/' . $filename, 0660);
 
-		$this->em->createQuery('UPDATE ' . get_class($entity) . ' e SET e.filename = :filename, e.size = :size WHERE e.id = :id')
+		$this->em->createQuery('UPDATE ' . get_class($entity) . ' e SET e.filename = :filename, e.size = :size, e.hash = :hash WHERE e.id = :id')
 			->setParameters([
 				'id' => $entity->getId(),
 				'filename' => $entity->getFilename(),
-				'size' => filesize($this->dataDir . '/' . $entity->getFilename())
+				'size' => filesize($this->dataDir . '/' . $entity->getFilename()),
+				'hash' => md5($entity->getContents())
 			])
 			->execute();
 
