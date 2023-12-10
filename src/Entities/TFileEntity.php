@@ -6,6 +6,7 @@ namespace ADT\Files\Entities;
 
 use ADT\Files\Helpers;
 use Doctrine\ORM\Mapping as ORM;
+use Doctrine\ORM\Mapping\Column;
 
 /**
  * Trait TFileEntity
@@ -36,6 +37,14 @@ trait TFileEntity
 	 */
 	#[ORM\Column(type: 'integer', nullable: true)]
 	protected ?int $size = null;
+
+	/**
+	 * @var string
+	 *
+	 * @ORM\Column(type="string", nullable=true)
+	 */
+	#[Column(nullable: true)]
+	protected ?string $hash = null;
 
 	/**
 	 * @var string
@@ -195,10 +204,9 @@ trait TFileEntity
 		return $this->size;
 	}
 
-	public function setSize(int $size): self
+	public function getHash(): ?string
 	{
-		$this->size = $size;
-		return $this;
+		return $this->hash;
 	}
 
 	public function ignoreMissingFile(): void
