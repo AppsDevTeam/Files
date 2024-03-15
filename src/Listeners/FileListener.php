@@ -186,6 +186,8 @@ class FileListener implements EventSubscriber
 				'hash' => md5($entity->getContents())
 			])
 			->execute();
+		// because of low level update
+		$this->em->refresh($entity);
 
 		if ($entity->getOnAfterSave()) {
 			call_user_func($entity->getOnAfterSave(), $entity);
