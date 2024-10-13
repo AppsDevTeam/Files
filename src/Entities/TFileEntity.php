@@ -8,40 +8,28 @@ use ADT\Files\Helpers;
 use Doctrine\ORM\Mapping as ORM;
 use Doctrine\ORM\Mapping\Column;
 
-/**
- * Trait TFileEntity
- * @package ADT\Files\Entities
- */
 trait TFileEntity
 {
 	/**
 	 * @var string
-	 *
-	 * @ORM\Column(type="string", nullable=false)
 	 */
 	#[ORM\Column(type: 'string')]
 	protected $originalName;
 
 	/**
 	 * @var string
-	 *
-	 * @ORM\Column(type="string", nullable=true)
 	 */
 	#[ORM\Column(type: 'string', nullable: true)]
 	protected $filename;
 
 	/**
 	 * @var int
-	 *
-	 * @ORM\Column(type="integer", nullable=true)
 	 */
 	#[ORM\Column(type: 'integer', nullable: true)]
 	protected ?int $size = null;
 
 	/**
 	 * @var string
-	 *
-	 * @ORM\Column(type="string", nullable=true)
 	 */
 	#[Column(nullable: true)]
 	protected ?string $hash = null;
