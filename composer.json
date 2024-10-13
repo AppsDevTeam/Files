@@ -17,8 +17,8 @@
 		"issues": "https://github.com/AppsDevTeam/Files/issues"
 	},
 	"require": {
-		"nette/utils": "^2.2 | ^3.0 | ^4.0",
-		"doctrine/orm": "^2.2"
+		"nette/utils": "^2.2|^3.0|^4.0",
+		"doctrine/orm": "^2.2|^3.0"
 	},
 	"autoload": {
 		"psr-4": {
