@@ -11,6 +11,9 @@ use Doctrine\Common\EventSubscriber;
 use Doctrine\Common\Util\ClassUtils;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Event\LifecycleEventArgs;
+use Doctrine\ORM\Event\PostLoadEventArgs;
+use Doctrine\ORM\Event\PostPersistEventArgs;
+use Doctrine\ORM\Event\PreRemoveEventArgs;
 use Gedmo\SoftDeleteable\SoftDeleteable;
 use steevanb\DoctrineReadOnlyHydrator\Hydrator\ReadOnlyHydrator;
 
@@ -68,12 +71,9 @@ class FileListener implements EventSubscriber
 		];
 	}
 
-	/**
-	 * @param LifecycleEventArgs $args
-	 */
-	public function postLoad(LifecycleEventArgs $args)
+	public function postLoad(PostLoadEventArgs $args)
 	{
-		$entity = $args->getEntity();
+		$entity = $args->getObject();
 
 		if (!$entity instanceof IFileEntity) {
 			return;
@@ -83,12 +83,11 @@ class FileListener implements EventSubscriber
 	}
 
 	/**
-	 * @param LifecycleEventArgs $args
 	 * @throws \Exception
 	 */
-	public function postPersist(LifecycleEventArgs $args)
+	public function postPersist(PostPersistEventArgs $args)
 	{
-		$entity = $args->getEntity();
+		$entity = $args->getObject();
 
 		if (!$entity instanceof IFileEntity) {
 			return;
@@ -99,22 +98,19 @@ class FileListener implements EventSubscriber
 		$this->saveFile($entity);
 	}
 
-	/**
-	 * @param LifecycleEventArgs $eventArgs
-	 */
-	public function preRemove(LifecycleEventArgs $eventArgs)
+	public function preRemove(PreRemoveEventArgs $eventArgs)
 	{
-		$entity = $eventArgs->getEntity();
+		$entity = $eventArgs->getObject();
 
 		if (!$entity instanceof IFileEntity) {
 			return;
 		}
-		
+
 		if ($entity instanceof SoftDeleteable) {
 			return;
 		}
 
-		// zabespeci nacteni entity pokud jde o proxy, v opacnem pripade
+		// zabezpeci nacteni entity pokud jde o proxy, v opacnem pripade
 		// by v post flush nebylo mozne ziskat path lebo by doctrine nenasla entitu v db
 		$entity->getPath();
 
@@ -141,7 +137,6 @@ class FileListener implements EventSubscriber
 	}
 
 	/**
-	 * @param IFileEntity $entity
 	 * @throws \Exception
 	 */
 	protected function saveFile(IFileEntity $entity)
