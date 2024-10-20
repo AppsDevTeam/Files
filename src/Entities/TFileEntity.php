@@ -10,29 +10,20 @@ use Doctrine\ORM\Mapping\Column;
 
 trait TFileEntity
 {
-	/**
-	 * @var string
-	 */
 	#[ORM\Column(type: 'string')]
 	protected $originalName;
 
-	/**
-	 * @var string
-	 */
 	#[ORM\Column(type: 'string', nullable: true)]
 	protected $filename;
 
-	/**
-	 * @var int
-	 */
 	#[ORM\Column(type: 'integer', nullable: true)]
 	protected ?int $size = null;
 
-	/**
-	 * @var string
-	 */
 	#[Column(nullable: true)]
 	protected ?string $hash = null;
+
+	#[Column(nullable: false)]
+	protected ?\DateTimeImmutable $createdAt;
 
 	/**
 	 * @var string
@@ -70,6 +61,11 @@ trait TFileEntity
 	protected $onAfterDelete;
 
 	protected $ignoreMissingFile = false;
+
+	public function __construct()
+	{
+		$this->createdAt = new \DateTimeImmutable();
+	}
 
 	public function getPath(): string
 	{
