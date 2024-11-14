@@ -43,4 +43,6 @@ interface IFileEntity
 	public function getOnAfterDelete(): ?callable;
 
 	public function ignoreMissingFile(): void;
+	
+	public function getIsPrivate(): bool;
 }

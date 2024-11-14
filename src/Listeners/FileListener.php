@@ -19,38 +19,26 @@ use steevanb\DoctrineReadOnlyHydrator\Hydrator\ReadOnlyHydrator;
 
 class FileListener implements EventSubscriber
 {
-	/**
-	 * @var string
-	 */
-	protected $dataDir;
-
-	/**
-	 * @var string
-	 */
-	protected $dataUrl;
-
-	/**
-	 * @var EntityManagerInterface
-	 */
-	protected $em;
-
+	protected string $dataDir;
+	protected string $dataUrl;
+	protected ?string $privateDataDir = null;
+	protected EntityManagerInterface $em;
 	/**
 	 * @var IFileEntity[]
 	 */
-	protected $filesToDelete = [];
-
+	protected array $filesToDelete = [];
 	/**
 	 * @var callable
 	 */
 	protected $onAfterDelete;
-
 	protected bool $ignoreMissingFiles = false;
 
-	public function __construct(string $dataDir, ?string $dataUrl, EntityManagerInterface $em)
+	public function __construct(string $dataDir, ?string $dataUrl, ?string $privateDataDir, EntityManagerInterface $em)
 	{
+		$this->em = $em;
 		$this->dataDir = $dataDir;
 		$this->dataUrl = $dataUrl;
-		$this->em = $em;
+		$this->privateDataDir = $privateDataDir;
 	}
 
 	public function ignoreMissingFiles(bool $ignoreMissingFiles)
@@ -191,7 +179,7 @@ class FileListener implements EventSubscriber
 
 	protected function setupEntity(IFileEntity $entity): void
 	{
-		$entity->setBaseDirectoryPath($this->dataDir);
+		$entity->setBaseDirectoryPath($entity->getIsPrivate() ? $this->privateDataDir : $this->dataDir);
 		if ($this->dataUrl) {
 			$entity->setBaseDirectoryUrl($this->dataUrl);
 		}

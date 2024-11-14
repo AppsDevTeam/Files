@@ -25,6 +25,9 @@ trait TFileEntity
 	#[Column(nullable: false)]
 	protected ?\DateTimeImmutable $createdAt;
 
+	#[Column(nullable: false, options: ['default' => 0])]
+	protected bool $isPrivate = false;
+
 	/**
 	 * @var string
 	 */
@@ -69,6 +72,7 @@ trait TFileEntity
 
 	public function getPath(): string
 	{
+		$this->filename; // intentionally, because of lazy ghost objects https://github.com/doctrine/DoctrineBundle/issues/1651#issuecomment-1684297751
 		return $this->path . '/' . $this->filename;
 	}
 
@@ -196,5 +200,16 @@ trait TFileEntity
 	public function ignoreMissingFile(): void
 	{
 		$this->ignoreMissingFile = true;
+	}
+
+	public function getIsPrivate(): bool
+	{
+		return $this->isPrivate;
+	}
+
+	public function setIsPrivate(bool $isPrivate): self
+	{
+		$this->isPrivate = $isPrivate;
+		return $this;
 	}
 }
