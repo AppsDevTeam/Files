@@ -137,12 +137,14 @@ class FileListener implements EventSubscriber
 
 		$entity->setFilename($filename);
 
+		$dataDir = $entity->getIsPrivate() ? $this->privateDataDir : $this->dataDir;
+
 		// we don't use file_exists because it's not an atomic operation
 		// that's why we rather use @
-		if (@mkdir(dirname($this->dataDir  . '/' . $filename), 0770, true)) {
+		if (@mkdir(dirname($dataDir  . '/' . $filename), 0770, true)) {
 			// we must use chmod because umask is applied to the permissions in mkdir command
 			// default umask is mostly 0022, which executes 0770 & ~0022 and results in 0750
-			chmod(dirname($this->dataDir  . '/' . $filename), 0770);
+			chmod(dirname($dataDir  . '/' . $filename), 0770);
 		}
 		if ($entity->getTemporaryFile()) {
 			if (!rename($entity->getTemporaryFile(), $this->dataDir  . '/' . $filename)) {
@@ -150,22 +152,22 @@ class FileListener implements EventSubscriber
 			}
 		}
 		elseif ($entity->getStream()) {
-			if (!copy($entity->getStream(), $this->dataDir  . '/' . $filename)) {
+			if (!copy($entity->getStream(), $dataDir  . '/' . $filename)) {
 				throw new \Exception('File was not uploaded.');
 			}
 		}
 		else {
-			if (file_put_contents($this->dataDir  . '/' . $filename, $entity->getTemporaryContent()) === false) {
+			if (file_put_contents($dataDir  . '/' . $filename, $entity->getTemporaryContent()) === false) {
 				throw new \Exception('File was not uploaded.');
 			}
 		}
-		chmod($this->dataDir  . '/' . $filename, 0660);
+		chmod($dataDir  . '/' . $filename, 0660);
 
 		$this->em->createQuery('UPDATE ' . get_class($entity) . ' e SET e.filename = :filename, e.size = :size, e.hash = :hash WHERE e.id = :id')
 			->setParameters([
 				'id' => $entity->getId(),
 				'filename' => $entity->getFilename(),
-				'size' => filesize($this->dataDir . '/' . $entity->getFilename()),
+				'size' => filesize($dataDir . '/' . $entity->getFilename()),
 				'hash' => md5($entity->getContents())
 			])
 			->execute();
