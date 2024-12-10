@@ -93,6 +93,7 @@ trait TFileEntity
 
 	public function getUrl(): string
 	{
+		$this->filename; // intentionally, because of lazy ghost objects https://github.com/doctrine/DoctrineBundle/issues/1651#issuecomment-1684297751
 		if (!$this->url) {
 			throw new \Exception('Url is not set.');
 		}
@@ -128,7 +129,7 @@ trait TFileEntity
 		$this->originalName = $originalName;
 		return $this;
 	}
-	
+
 	public function getTemporaryContent(): ?string
 	{
 		return $this->temporaryContent;
