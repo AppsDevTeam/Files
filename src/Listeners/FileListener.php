@@ -33,8 +33,11 @@ class FileListener implements EventSubscriber
 	protected $onAfterDelete;
 	protected bool $ignoreMissingFiles = false;
 
-	public function __construct(string $dataDir, ?string $dataUrl, ?string $privateDataDir = null, EntityManagerInterface $em)
+	public function __construct(string $dataDir, ?string $dataUrl = null, ?string $privateDataDir = null, ?EntityManagerInterface $em = null)
 	{
+		if (!$em) {
+			throw new \Exception("Class 'Doctrine\ORM\EntityManagerInterface' required by \$em in FileListener::__construct() not found.");
+		}
 		$this->em = $em;
 		$this->dataDir = $dataDir;
 		$this->dataUrl = $dataUrl;
