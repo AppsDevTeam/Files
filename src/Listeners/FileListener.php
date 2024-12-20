@@ -33,7 +33,7 @@ class FileListener implements EventSubscriber
 	protected $onAfterDelete;
 	protected bool $ignoreMissingFiles = false;
 
-	public function __construct(string $dataDir, ?string $dataUrl, ?string $privateDataDir, EntityManagerInterface $em)
+	public function __construct(string $dataDir, ?string $dataUrl, ?string $privateDataDir = null, EntityManagerInterface $em)
 	{
 		$this->em = $em;
 		$this->dataDir = $dataDir;
