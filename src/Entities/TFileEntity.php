@@ -31,17 +31,17 @@ trait TFileEntity
 	/**
 	 * @var string
 	 */
-	protected $temporaryFile;
+	protected $temporaryFile = null;
 
 	/**
 	 * @var string
 	 */
-	protected $temporaryContent;
+	protected $temporaryContent = null;
 
 	/**
 	 * @var string
 	 */
-	protected $stream;
+	protected $stream = null;
 
 	/**
 	 * @var string
@@ -154,7 +154,7 @@ trait TFileEntity
 
 	public function isValid(): bool
 	{
-		return $this->temporaryFile || $this->temporaryContent || $this->stream;
+		return !is_null($this->temporaryFile) || !is_null($this->temporaryContent) || !is_null($this->stream);
 	}
 
 	public function setOnAfterSave(callable $callback): self
