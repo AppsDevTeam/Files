@@ -20,7 +20,7 @@ use steevanb\DoctrineReadOnlyHydrator\Hydrator\ReadOnlyHydrator;
 class FileListener implements EventSubscriber
 {
 	protected string $dataDir;
-	protected string $dataUrl;
+	protected ?string $dataUrl = null;
 	protected ?string $privateDataDir = null;
 	protected EntityManagerInterface $em;
 	/**
