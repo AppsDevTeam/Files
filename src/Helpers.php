@@ -8,22 +8,21 @@ use Nette\Utils\Strings;
 
 class Helpers
 {
-
 	/* Maximální délka sloupce originalName */
-	const ORIGINAL_NAME_LEN = 255;
+	const int ORIGINAL_NAME_LEN = 255;
 
 	/* Maximální délka sloupce name */
-	const NAME_LEN = 255;
+	const int NAME_LEN = 255;
 
 	/* Délka hashe, který se přidá k názvu souboru, aby nebyl název souboru uhodnutelný */
-	const HASH_LEN = 5;
+	const int HASH_LEN = 5;
 
 	/*
 	 * Po kolika znacích bude IDčko rozděleno na stromovou strukturu složek.
 	 * Maximální počet záznamů (souborů + složek) M v jedné složce je dán vztahem
 	 * M = 2 * 10^(ID_SPLIT_LEN)
 	 */
-	const ID_SPLIT_LEN = 3;
+	const int ID_SPLIT_LEN = 3;
 
 	/**
 	 * Zadané jméno souboru zkrátí na maximální délku tak, že pokud je $name
@@ -31,12 +30,8 @@ class Helpers
 	 * maximálně $maxExtLen znaků a zkracuje řetězec $name od konce před
 	 * extension. Název souboru $name nemusí mít příponu. Předpokládá, že $name
 	 * neobsahuje žádnou cestu, pouze název souboru.
-	 * @param string $name
-	 * @param integer $maxLen
-	 * @param integer $maxExtLen
-	 * @return string
 	 */
-	public static function resizeName($name, $maxLen = self::ORIGINAL_NAME_LEN, $maxExtLen = 10)
+	public static function resizeName($name, int $maxLen = self::ORIGINAL_NAME_LEN, int $maxExtLen = 10): string
 	{
 		if (mb_strlen($name) < $maxLen) {
 			return $name;
@@ -65,13 +60,13 @@ class Helpers
 	 * použit způsob generování id náhodně. Tento callback pak ověřuje, zda je
 	 * náhodně vygenerované id již použito nebo ne.
 	 * @param string $originalName
-	 * @param integer|callable $id Id, které se má použít a nebo callback
+	 * @param callable|integer $id Id, které se má použít a nebo callback
 	 *        ověřující, zda je náhodně vygenerované id již použité:
 	 *        function(array $id) {}. Id je pole - číslo rozdělené po ID_SPLIT_LEN
 	 *        dekadických číslicích. Vrací boolean.
 	 * @return string
 	 */
-	public static function getName($originalName, $id)
+	public static function getName(string $originalName, callable|int $id): string
 	{
 		if (is_scalar($id)) {
 			$id = str_split((string)$id, static::ID_SPLIT_LEN);
@@ -98,16 +93,13 @@ class Helpers
 			$originalName .= '.' . $pathinfo['extension'];
 		}
 
-		// TODO: přidat volitelný callback na zjištění IS_PRODUCTION, aby si každý mohl nastavit dle potřeby.
-		$localhostPart = (isset($_SERVER['SERVER_ADDR']) && $_SERVER['SERVER_ADDR'] === '127.0.0.1' ? 'loc/' : '');
 		$idPart = implode(DIRECTORY_SEPARATOR, $id);
 		$namePart = static::resizeName(
 			$originalName,
-			static::NAME_LEN - strlen($localhostPart) - strlen($idPart) - static::HASH_LEN - 2
+			static::NAME_LEN - strlen($idPart) - static::HASH_LEN - 2
 		);
 		$hashPart = Random::generate(self::HASH_LEN);
 
-		return $localhostPart . $idPart . '_' . $hashPart . '_' . $namePart;
+		return $idPart . '_' . $hashPart . '_' . $namePart;
 	}
-
 }

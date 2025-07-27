@@ -17,12 +17,17 @@
 		"issues": "https://github.com/AppsDevTeam/Files/issues"
 	},
 	"require": {
+		"php": "^8.4",
 		"nette/utils": "^2.2|^3.0|^4.0",
-		"doctrine/orm": "^2.2|^3.0"
+		"doctrine/orm": "^2.2|^3.0",
+		"adt/doctrine-components": "^3.0"
 	},
 	"autoload": {
 		"psr-4": {
 			"ADT\\Files\\": "src/"
 		}
+	},
+	"require-dev": {
+		"gedmo/doctrine-extensions": "^3.20"
 	}
 }

@@ -4,17 +4,18 @@ declare(strict_types=1);
 
 namespace ADT\Files\Entities;
 
-use ADT\Files\Helpers;
+use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 use Doctrine\ORM\Mapping\Column;
+use Exception;
 
-trait TFileEntity
+trait FileTrait
 {
 	#[ORM\Column(type: 'string')]
-	protected $originalName;
+	protected string $originalName;
 
 	#[ORM\Column(type: 'string', nullable: true)]
-	protected $filename;
+	protected ?string $filename = null;
 
 	#[ORM\Column(type: 'integer', nullable: true)]
 	protected ?int $size = null;
@@ -23,51 +24,26 @@ trait TFileEntity
 	protected ?string $hash = null;
 
 	#[Column(nullable: false)]
-	protected ?\DateTimeImmutable $createdAt;
+	protected DateTimeImmutable $createdAt;
 
 	#[Column(nullable: false, options: ['default' => 0])]
 	protected bool $isPrivate = false;
 
-	/**
-	 * @var string
-	 */
-	protected $temporaryFile = null;
-
-	/**
-	 * @var string
-	 */
-	protected $temporaryContent = null;
-
-	/**
-	 * @var string
-	 */
-	protected $stream = null;
-
-	/**
-	 * @var string
-	 */
-	protected $path;
-
-	/**
-	 * @var string
-	 */
-	protected $url;
-
-	/**
-	 * @var callable
-	 */
+	protected ?string $temporaryFile = null;
+	protected ?string $temporaryContent = null;
+	protected ?string $stream = null;
+	protected string $path;
+	protected string $url;
+	/** @var callable */
 	protected $onAfterSave;
-
-	/**
-	 * @var callable
-	 */
+	/** @var callable */
 	protected $onAfterDelete;
 
-	protected $ignoreMissingFile = false;
+	protected bool $ignoreMissingFile = false;
 
 	public function __construct()
 	{
-		$this->createdAt = new \DateTimeImmutable();
+		$this->createdAt = new DateTimeImmutable();
 	}
 
 	public function getPath(): string
@@ -91,12 +67,15 @@ trait TFileEntity
 		return $this;
 	}
 
+	/**
+	 * @throws Exception
+	 */
 	public function getUrl(): string
 	{
 		$this->filename; // intentionally, because of lazy ghost objects https://github.com/doctrine/DoctrineBundle/issues/1651#issuecomment-1684297751
 
 		if (!$this->url) {
-			throw new \Exception('Url is not set.');
+			throw new Exception('Url is not set.');
 		}
 
 		return $this->url . '/' . $this->filename;
@@ -108,10 +87,13 @@ trait TFileEntity
 		return $this;
 	}
 
+	/**
+	 * @throws Exception
+	 */
 	public function setTemporaryFile(string $temporaryFile, string $originalName): self
 	{
 		if (!is_file($temporaryFile)) {
-			throw new \Exception($temporaryFile . ' is not a file.');
+			throw new Exception($temporaryFile . ' is not a file.');
 		}
 
 		$this->temporaryFile = $temporaryFile;
@@ -136,10 +118,13 @@ trait TFileEntity
 		return $this->temporaryContent;
 	}
 
+	/**
+	 * @throws Exception
+	 */
 	public function setStream(string $stream, string $originalName): self
 	{
 		if (!@fopen($stream, 'r')) {
-			throw new \Exception($stream. ' is not a stream.');
+			throw new Exception($stream. ' is not a stream.');
 		}
 
 		$this->stream = $stream;

@@ -4,18 +4,17 @@ declare(strict_types=1);
 
 namespace ADT\Files\Listeners;
 
-use ADT\Files\Entities\IFileEntity;
+use ADT\Files\Entities\File;
 use ADT\Files\Helpers;
-use Doctrine\Common\EventManager;
 use Doctrine\Common\EventSubscriber;
-use Doctrine\Common\Util\ClassUtils;
 use Doctrine\ORM\EntityManagerInterface;
-use Doctrine\ORM\Event\LifecycleEventArgs;
 use Doctrine\ORM\Event\PostLoadEventArgs;
 use Doctrine\ORM\Event\PostPersistEventArgs;
 use Doctrine\ORM\Event\PreRemoveEventArgs;
+use Doctrine\ORM\Events;
+use Doctrine\ORM\Exception\ORMException;
+use Exception;
 use Gedmo\SoftDeleteable\SoftDeleteable;
-use steevanb\DoctrineReadOnlyHydrator\Hydrator\ReadOnlyHydrator;
 
 class FileListener implements EventSubscriber
 {
@@ -23,20 +22,19 @@ class FileListener implements EventSubscriber
 	protected string $dataUrl;
 	protected ?string $privateDataDir = null;
 	protected EntityManagerInterface $em;
-	/**
-	 * @var IFileEntity[]
-	 */
+	/** @var File[] */
 	protected array $filesToDelete = [];
-	/**
-	 * @var callable
-	 */
+	/** @var callable */
 	protected $onAfterDelete;
 	protected bool $ignoreMissingFiles = false;
 
+	/**
+	 * @throws Exception
+	 */
 	public function __construct(string $dataDir, ?string $dataUrl = null, ?string $privateDataDir = null, ?EntityManagerInterface $em = null)
 	{
 		if (!$em) {
-			throw new \Exception("Class 'Doctrine\ORM\EntityManagerInterface' required by \$em in FileListener::__construct() not found.");
+			throw new Exception("Class 'Doctrine\ORM\EntityManagerInterface' required by \$em in FileListener::__construct() not found.");
 		}
 		$this->em = $em;
 		$this->dataDir = $dataDir;
@@ -44,29 +42,30 @@ class FileListener implements EventSubscriber
 		$this->privateDataDir = $privateDataDir;
 	}
 
-	public function ignoreMissingFiles(bool $ignoreMissingFiles)
+	public function ignoreMissingFiles(bool $ignoreMissingFiles): static
 	{
 		$this->ignoreMissingFiles = $ignoreMissingFiles;
+		return $this;
 	}
 
 	/**
-	 * @return array|string[]
+	 * @return string[]
 	 */
-	public function getSubscribedEvents()
+	public function getSubscribedEvents(): array
 	{
 		return [
-			"postLoad",
-			"postPersist",
-			"preRemove",
-			"postFlush",
+			Events::postLoad,
+			Events::postPersist,
+			Events::preRemove,
+			Events::postFlush,
 		];
 	}
 
-	public function postLoad(PostLoadEventArgs $args)
+	public function postLoad(PostLoadEventArgs $args): void
 	{
 		$entity = $args->getObject();
 
-		if (!$entity instanceof IFileEntity) {
+		if (!$entity instanceof File) {
 			return;
 		}
 
@@ -74,13 +73,13 @@ class FileListener implements EventSubscriber
 	}
 
 	/**
-	 * @throws \Exception
+	 * @throws Exception|ORMException
 	 */
-	public function postPersist(PostPersistEventArgs $args)
+	public function postPersist(PostPersistEventArgs $args): void
 	{
 		$entity = $args->getObject();
 
-		if (!$entity instanceof IFileEntity) {
+		if (!$entity instanceof File) {
 			return;
 		}
 
@@ -89,11 +88,11 @@ class FileListener implements EventSubscriber
 		$this->saveFile($entity);
 	}
 
-	public function preRemove(PreRemoveEventArgs $eventArgs)
+	public function preRemove(PreRemoveEventArgs $eventArgs): void
 	{
 		$entity = $eventArgs->getObject();
 
-		if (!$entity instanceof IFileEntity) {
+		if (!$entity instanceof File) {
 			return;
 		}
 
@@ -111,36 +110,33 @@ class FileListener implements EventSubscriber
 		$this->filesToDelete[] = $entity;
 	}
 
-	/**
-	 *
-	 */
-	public function postFlush()
+	public function postFlush(): void
 	{
-		/** @var IFileEntity $entity */
 		foreach ($this->filesToDelete as $entity) {
 			@unlink($entity->getPath());
 
 			if ($this->onAfterDelete) {
-				$this->onAfterDelete->call($this, $entity);
+				($this->onAfterDelete)($this, $entity);
 			}
 		}
 		$this->filesToDelete = [];
 	}
 
 	/**
-	 * @throws \Exception
+	 * @throws Exception
+	 * @throws ORMException
 	 */
-	protected function saveFile(IFileEntity $entity)
+	protected function saveFile(File $file): void
 	{
-		if (!$entity->isValid()) {
-			throw new \Exception('Entity does not have a temporary file or content set.');
+		if (!$file->isValid()) {
+			throw new Exception('Entity does not have a temporary file or content set.');
 		}
 
-		$filename = Helpers::getName($entity->getOriginalName(), $entity->getId());
+		$filename = Helpers::getName($file->getOriginalName(), $file->getId());
 
-		$entity->setFilename($filename);
+		$file->setFilename($filename);
 
-		$dataDir = $entity->getIsPrivate() ? $this->privateDataDir : $this->dataDir;
+		$dataDir = $file->getIsPrivate() ? $this->privateDataDir : $this->dataDir;
 
 		// we don't use file_exists because it's not an atomic operation
 		// that's why we rather use @
@@ -149,47 +145,47 @@ class FileListener implements EventSubscriber
 			// default umask is mostly 0022, which executes 0770 & ~0022 and results in 0750
 			chmod(dirname($dataDir  . '/' . $filename), 0770);
 		}
-		if ($entity->getTemporaryFile()) {
-			if (!rename($entity->getTemporaryFile(), $this->dataDir  . '/' . $filename)) {
-				throw new \Exception('File was not uploaded.');
+		if ($file->getTemporaryFile()) {
+			if (!rename($file->getTemporaryFile(), $this->dataDir  . '/' . $filename)) {
+				throw new Exception('File was not uploaded.');
 			}
 		}
-		elseif ($entity->getStream()) {
-			if (!copy($entity->getStream(), $dataDir  . '/' . $filename)) {
-				throw new \Exception('File was not uploaded.');
+		elseif ($file->getStream()) {
+			if (!copy($file->getStream(), $dataDir  . '/' . $filename)) {
+				throw new Exception('File was not uploaded.');
 			}
 		}
 		else {
-			if (file_put_contents($dataDir  . '/' . $filename, $entity->getTemporaryContent()) === false) {
-				throw new \Exception('File was not uploaded.');
+			if (file_put_contents($dataDir  . '/' . $filename, $file->getTemporaryContent()) === false) {
+				throw new Exception('File was not uploaded.');
 			}
 		}
 		chmod($dataDir  . '/' . $filename, 0660);
 
-		$this->em->createQuery('UPDATE ' . get_class($entity) . ' e SET e.filename = :filename, e.size = :size, e.hash = :hash WHERE e.id = :id')
+		$this->em->createQuery('UPDATE ' . get_class($file) . ' e SET e.filename = :filename, e.size = :size, e.hash = :hash WHERE e.id = :id')
 			->setParameters([
-				'id' => $entity->getId(),
-				'filename' => $entity->getFilename(),
-				'size' => filesize($dataDir . '/' . $entity->getFilename()),
-				'hash' => md5($entity->getContents())
+				'id' => $file->getId(),
+				'filename' => $file->getFilename(),
+				'size' => filesize($dataDir . '/' . $file->getFilename()),
+				'hash' => md5($file->getContents())
 			])
 			->execute();
 		// because of low level update
-		$this->em->refresh($entity);
+		$this->em->refresh($file);
 
-		if ($entity->getOnAfterSave()) {
-			call_user_func($entity->getOnAfterSave(), $entity);
+		if ($file->getOnAfterSave()) {
+			call_user_func($file->getOnAfterSave(), $file);
 		}
 	}
 
-	protected function setupEntity(IFileEntity $entity): void
+	protected function setupEntity(File $file): void
 	{
-		$entity->setBaseDirectoryPath($entity->getIsPrivate() ? $this->privateDataDir : $this->dataDir);
+		$file->setBaseDirectoryPath($file->getIsPrivate() ? $this->privateDataDir : $this->dataDir);
 		if ($this->dataUrl) {
-			$entity->setBaseDirectoryUrl($this->dataUrl);
+			$file->setBaseDirectoryUrl($this->dataUrl);
 		}
 		if ($this->ignoreMissingFiles) {
-			$entity->ignoreMissingFile();
+			$file->ignoreMissingFile();
 		}
 	}
 }
