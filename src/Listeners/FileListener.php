@@ -19,7 +19,7 @@ use Gedmo\SoftDeleteable\SoftDeleteable;
 class FileListener implements EventSubscriber
 {
 	protected string $dataDir;
-	protected string $dataUrl;
+	protected ?string $dataUrl = null;
 	protected ?string $privateDataDir = null;
 	protected EntityManagerInterface $em;
 	/** @var File[] */

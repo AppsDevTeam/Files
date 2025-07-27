@@ -54,11 +54,13 @@ trait FileTrait
 
 	public function getContents(): string
 	{
+		$path = $this->getPath(); // intentionally, because of lazy ghost objects https://github.com/doctrine/DoctrineBundle/issues/1651#issuecomment-1684297751
+
 		if ($this->ignoreMissingFile) {
-			return (string) @file_get_contents($this->getPath());
+			return (string) @file_get_contents($path);
 		}
 
-		return file_get_contents($this->getPath());
+		return file_get_contents($path);
 	}
 
 	public function setBaseDirectoryPath(string $path): self
