@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace ADT\Files\Entities;
 
-use ADT\DoctrineComponents\IEntity;
+use ADT\DoctrineComponents\Entities\Entity;
 
-interface File extends IEntity
+interface File extends Entity
 {
 	public function getPath(): string;
 	public function getContents(): string;
