@@ -23,6 +23,9 @@ trait FileTrait
 	#[Column(nullable: true)]
 	protected ?string $hash = null;
 
+	#[Column(nullable: true)]
+	protected ?string $mimeType = null;
+
 	#[Column(nullable: false)]
 	protected DateTimeImmutable $createdAt;
 
@@ -184,6 +187,17 @@ trait FileTrait
 	public function getHash(): ?string
 	{
 		return $this->hash;
+	}
+
+	public function getMimeType(): ?string
+	{
+		return $this->mimeType;
+	}
+
+	public function setMimeType(string $mimeType): self
+	{
+		$this->mimeType = $mimeType;
+		return $this;
 	}
 
 	public function ignoreMissingFile(): void

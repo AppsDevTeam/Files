@@ -162,12 +162,19 @@ class FileListener implements EventSubscriber
 		}
 		chmod($dataDir  . '/' . $filename, 0660);
 
-		$this->em->createQuery('UPDATE ' . get_class($file) . ' e SET e.filename = :filename, e.size = :size, e.hash = :hash WHERE e.id = :id')
+		$filePath = $dataDir . '/' . $file->getFilename();
+		$mimeType = mime_content_type($filePath) ?: null;
+		if ($mimeType) {
+			$file->setMimeType($mimeType);
+		}
+
+		$this->em->createQuery('UPDATE ' . get_class($file) . ' e SET e.filename = :filename, e.size = :size, e.hash = :hash, e.mimeType = :mimeType WHERE e.id = :id')
 			->setParameters([
 				'id' => $file->getId(),
 				'filename' => $file->getFilename(),
-				'size' => filesize($dataDir . '/' . $file->getFilename()),
-				'hash' => md5($file->getContents())
+				'size' => filesize($filePath),
+				'hash' => md5($file->getContents()),
+				'mimeType' => $mimeType,
 			])
 			->execute();
 		// because of low level update
