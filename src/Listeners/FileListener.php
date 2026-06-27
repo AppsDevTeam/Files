@@ -146,7 +146,7 @@ class FileListener implements EventSubscriber
 			chmod(dirname($dataDir  . '/' . $filename), 0770);
 		}
 		if ($file->getTemporaryFile()) {
-			if (!rename($file->getTemporaryFile(), $this->dataDir  . '/' . $filename)) {
+			if (!rename($file->getTemporaryFile(), $dataDir  . '/' . $filename)) {
 				throw new Exception('File was not uploaded.');
 			}
 		}
