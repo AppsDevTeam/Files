@@ -215,4 +215,9 @@ trait FileTrait
 		$this->isPrivate = $isPrivate;
 		return $this;
 	}
+
+	public function getCreatedAt(): DateTimeImmutable
+	{
+		return $this->createdAt;
+	}
 }
