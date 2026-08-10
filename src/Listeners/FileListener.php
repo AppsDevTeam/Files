@@ -173,7 +173,9 @@ class FileListener implements EventSubscriber
 				'id' => $file->getId(),
 				'filename' => $file->getFilename(),
 				'size' => filesize($filePath),
-				'hash' => md5($file->getContents()),
+				// md5_file reads the file in chunks, md5($file->getContents()) would load
+				// the whole file into memory and exhaust the memory limit on large files
+				'hash' => md5_file($filePath) ?: null,
 				'mimeType' => $mimeType,
 			])
 			->execute();
