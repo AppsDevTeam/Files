@@ -25,6 +25,27 @@ class Helpers
 	const int ID_SPLIT_LEN = 3;
 
 	/**
+	 * Přípony, které nelze uložit - soubor by šel spustit jako kód, kdyby skončil pod
+	 * document rootem a webserver by ho předal interpretru. Porovnává se case-insensitive.
+	 * Přenastavitelné aplikací.
+	 * @var string[]
+	 */
+	public static array $blockedExtensions = [
+		'php', 'php3', 'php4', 'php5', 'php7', 'php8',
+		'phtml', 'pht', 'phps', 'phar', 'phpt',
+	];
+
+	/**
+	 * Má soubor zakázanou příponu? Rozhoduje poslední přípona, takže "x.jpg.php" je zakázané.
+	 */
+	public static function isBlockedExtension(string $originalName): bool
+	{
+		$extension = pathinfo($originalName, PATHINFO_EXTENSION);
+
+		return $extension !== '' && in_array(mb_strtolower($extension), static::$blockedExtensions, true);
+	}
+
+	/**
 	 * Zadané jméno souboru zkrátí na maximální délku tak, že pokud je $name
 	 * kratší, vrátí ho nezměněné. Pokud je delší, nejprve zkrátí extension na
 	 * maximálně $maxExtLen znaků a zkracuje řetězec $name od konce před

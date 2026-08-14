@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace ADT\Files\Entities;
 
+use ADT\Files\BlockedExtensionException;
+use ADT\Files\Helpers;
 use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 use Doctrine\ORM\Mapping\Column;
@@ -94,12 +96,15 @@ trait FileTrait
 
 	/**
 	 * @throws Exception
+	 * @throws BlockedExtensionException
 	 */
 	public function setTemporaryFile(string $temporaryFile, string $originalName): self
 	{
 		if (!is_file($temporaryFile)) {
 			throw new Exception($temporaryFile . ' is not a file.');
 		}
+
+		$this->checkExtension($originalName);
 
 		$this->temporaryFile = $temporaryFile;
 		$this->originalName = $originalName;
@@ -111,8 +116,13 @@ trait FileTrait
 		return $this->temporaryFile;
 	}
 
+	/**
+	 * @throws BlockedExtensionException
+	 */
 	public function setTemporaryContent(string $content, string $originalName): self
 	{
+		$this->checkExtension($originalName);
+
 		$this->temporaryContent = $content;
 		$this->originalName = $originalName;
 		return $this;
@@ -132,9 +142,21 @@ trait FileTrait
 			throw new Exception($stream. ' is not a stream.');
 		}
 
+		$this->checkExtension($originalName);
+
 		$this->stream = $stream;
 		$this->originalName = $originalName;
 		return $this;
+	}
+
+	/**
+	 * @throws BlockedExtensionException
+	 */
+	protected function checkExtension(string $originalName): void
+	{
+		if (Helpers::isBlockedExtension($originalName)) {
+			throw new BlockedExtensionException('Extension of file "' . $originalName . '" is not allowed.');
+		}
 	}
 
 	public function getStream(): ?string

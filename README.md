@@ -52,3 +52,30 @@ $file->setTemporaryFile($pathToTemporaryFile, $originalFileName);
 $entityManager->persist($file);
 $entityManager->flush();
 ```
+
+Security
+---------
+
+Files keep the extension from the client-supplied filename, so a file could be executed as code
+if it ends up under the document root. Extensions listed in `Helpers::$blockedExtensions`
+(PHP ones by default) are therefore rejected — `setTemporaryFile()`, `setTemporaryContent()`
+and `setStream()` throw `ADT\Files\BlockedExtensionException`. The comparison is
+case-insensitive and the last extension decides, so `photo.jpg.php` is rejected too.
+
+Catch it where you accept the file and turn it into a validation error, otherwise it ends up
+as an unhandled error:
+
+```php
+try {
+    $file->setTemporaryFile($fileUpload->getTemporaryFile(), $fileUpload->getUntrustedName());
+} catch (ADT\Files\BlockedExtensionException $e) {
+    $form->addError('This file type is not allowed.');
+    return;
+}
+```
+
+Add your own (for example if you serve files from a server that also executes other languages):
+
+```php
+ADT\Files\Helpers::$blockedExtensions[] = 'svg';
+```
