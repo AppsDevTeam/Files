@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ADT\Files\Listeners;
 
+use ADT\DoctrineComponents\TransactionCallbacksInterface;
 use ADT\Files\Entities\File;
 use ADT\Files\Helpers;
 use Doctrine\Common\EventSubscriber;
@@ -112,14 +113,41 @@ class FileListener implements EventSubscriber
 
 	public function postFlush(): void
 	{
-		foreach ($this->filesToDelete as $entity) {
+		if (!$this->filesToDelete) {
+			return;
+		}
+
+		$entities = $this->filesToDelete;
+		$this->filesToDelete = [];
+
+		// postFlush bezi jeste uvnitr transakce, takze smazat soubor tady je nebezpecne:
+		// pripadny rollback vrati entitu do db, ale soubor uz je nenavratne pryc
+		if ($this->em instanceof TransactionCallbacksInterface) {
+			$this->em->afterCommit(fn () => $this->deleteFiles($entities));
+			return;
+		}
+
+		if (!$this->em->getConnection()->isTransactionActive()) {
+			$this->deleteFiles($entities);
+			return;
+		}
+
+		// Bez TransactionCallbacksInterface nemame jak se dozvedet o commitu, takze soubor
+		// radsi nechame lezet. Nepouzity soubor na disku se da uklidit, chybejici uz ne.
+	}
+
+	/**
+	 * @param File[] $entities
+	 */
+	protected function deleteFiles(array $entities): void
+	{
+		foreach ($entities as $entity) {
 			@unlink($entity->getPath());
 
 			if ($this->onAfterDelete) {
 				($this->onAfterDelete)($this, $entity);
 			}
 		}
-		$this->filesToDelete = [];
 	}
 
 	/**
