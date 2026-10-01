@@ -8,6 +8,13 @@ use Nette\Utils\Strings;
 
 class Helpers
 {
+	/*
+	 * Mime type použitý tam, kde ho nelze z obsahu souboru zjistit. Sloupec je not nullable,
+	 * takže konzument nikdy nedostane null - "neznámá binárka" je poctivější odpověď než
+	 * prázdná hodnota, se kterou stejně nikdo nic neudělá.
+	 */
+	const string DEFAULT_MIME_TYPE = 'application/octet-stream';
+
 	/* Maximální délka sloupce originalName */
 	const int ORIGINAL_NAME_LEN = 255;
 

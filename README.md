@@ -53,6 +53,44 @@ $entityManager->persist($file);
 $entityManager->flush();
 ```
 
+Mime type
+---------
+
+`getMimeType()` always returns a string. The type is detected from the contents of the file
+when it is saved, not from its name, so `photo.png` holding a text file reports `text/plain`.
+`mime_content_type()` only fails when the file cannot be read at all - unrecognized contents
+come back as `application/octet-stream` on their own - and that one case falls back to
+`Helpers::DEFAULT_MIME_TYPE`, which is the same thing.
+
+### Upgrading from a version with a nullable mime type
+
+The column was nullable until the type was made a plain `string`, so a database written by an
+older version has rows with no mime type and hydrating those now fails. **Fill them in before
+deploying this version**, with the old one still running:
+
+```
+$ php bin/console files:fill-mime-type
+```
+
+Register `\ADT\Files\Console\FillMimeTypeCommand` with the same data directories as the
+listener - it deliberately does not load entities, so it runs on both the old and the new
+version:
+
+```
+services:
+    - ADT\Files\Console\FillMimeTypeCommand(%dataDir%, %dataPrivateDir%)
+```
+
+It goes through every mapped entity implementing `ADT\Files\Entities\File`, reads the rows with
+no mime type and detects it from the file on the disk. Rows whose file is missing get
+`application/octet-stream` and are listed at the end, so that a handful of dead rows cannot
+block the migration. Once it is done, deploy this version together with a migration making the
+column not nullable.
+
+* `--dry-run` reports what would be filled in without writing anything
+* `--entity` limits the run to a single entity class
+* `--batch-size` is how many rows are read and written at once, 500 by default
+
 Security
 ---------
 

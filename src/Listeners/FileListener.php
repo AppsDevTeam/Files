@@ -191,10 +191,11 @@ class FileListener implements EventSubscriber
 		chmod($dataDir  . '/' . $filename, 0660);
 
 		$filePath = $dataDir . '/' . $file->getFilename();
-		$mimeType = mime_content_type($filePath) ?: null;
-		if ($mimeType) {
-			$file->setMimeType($mimeType);
-		}
+
+		// mime_content_type vrací false jen když soubor nejde přečíst - pro nerozpoznatelný
+		// obsah vrátí application/octet-stream samo. Zavináč kvůli warningu v tom jednom případě.
+		$mimeType = @mime_content_type($filePath) ?: Helpers::DEFAULT_MIME_TYPE;
+		$file->setMimeType($mimeType);
 
 		$this->em->createQuery('UPDATE ' . get_class($file) . ' e SET e.filename = :filename, e.size = :size, e.hash = :hash, e.mimeType = :mimeType WHERE e.id = :id')
 			->setParameters([

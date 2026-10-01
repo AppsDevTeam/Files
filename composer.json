@@ -30,7 +30,11 @@
 	},
 	"require-dev": {
 		"gedmo/doctrine-extensions": "^3.20",
-		"phpunit/phpunit": "^11.5 | ^12.0 | ^13.0"
+		"phpunit/phpunit": "^11.5 | ^12.0 | ^13.0",
+		"symfony/console": "^6.0 | ^7.0 | ^8.0"
+	},
+	"suggest": {
+		"symfony/console": "To run files:fill-mime-type, the backfill of mime types of files saved before the column existed"
 	},
 	"autoload-dev": {
 		"psr-4": {

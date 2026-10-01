@@ -22,8 +22,11 @@ final class EntityManagerFactory
 	 *
 	 * @param bool $adt whether to use ADT\DoctrineComponents\EntityManager (the one implementing
 	 *                  TransactionCallbacksInterface) or plain Doctrine
+	 * @param bool $nullableMimeType builds the schema with a nullable mime type, the way a
+	 *                               database looks before the not null migration is run -
+	 *                               the entity property stays a plain string either way
 	 */
-	public static function create(string $dataDir, bool $adt = true): EntityManagerInterface
+	public static function create(string $dataDir, bool $adt = true, bool $nullableMimeType = false): EntityManagerInterface
 	{
 		$config = ORMSetup::createAttributeMetadataConfiguration([__DIR__ . '/Entity'], true);
 		$config->enableNativeLazyObjects(true);
@@ -36,7 +39,17 @@ final class EntityManagerFactory
 
 		$eventManager->addEventSubscriber(new FileListener($dataDir, null, $dataDir, $em));
 
-		new SchemaTool($plainEm)->createSchema($plainEm->getMetadataFactory()->getAllMetadata());
+		$allMetadata = $plainEm->getMetadataFactory()->getAllMetadata();
+
+		if ($nullableMimeType) {
+			foreach ($allMetadata as $metadata) {
+				if (isset($metadata->fieldMappings['mimeType'])) {
+					$metadata->fieldMappings['mimeType']->nullable = true;
+				}
+			}
+		}
+
+		new SchemaTool($plainEm)->createSchema($allMetadata);
 
 		return $em;
 	}

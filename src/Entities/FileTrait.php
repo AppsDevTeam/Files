@@ -25,8 +25,11 @@ trait FileTrait
 	#[Column(nullable: true)]
 	protected ?string $hash = null;
 
-	#[Column(nullable: true)]
-	protected ?string $mimeType = null;
+	// not nullable - konzument tak nemusí řešit null tam, kde se čeká string (content type
+	// response apod.). Default drží hodnotu do chvíle, než ji listener po uložení přepíše
+	// tím, co opravdu zjistil z obsahu souboru.
+	#[Column(nullable: false, options: ['default' => Helpers::DEFAULT_MIME_TYPE])]
+	protected string $mimeType = Helpers::DEFAULT_MIME_TYPE;
 
 	#[Column(nullable: false)]
 	protected DateTimeImmutable $createdAt;
@@ -211,8 +214,10 @@ trait FileTrait
 		return $this->hash;
 	}
 
-	public function getMimeType(): ?string
+	public function getMimeType(): string
 	{
+		$this->filename; // intentionally, because of lazy ghost objects https://github.com/doctrine/DoctrineBundle/issues/1651#issuecomment-1684297751
+
 		return $this->mimeType;
 	}
 
