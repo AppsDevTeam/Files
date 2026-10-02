@@ -44,14 +44,14 @@ class FillMimeTypeCommand extends Command
 		$this
 			->addOption('entity', null, InputOption::VALUE_REQUIRED, 'Process only this entity class instead of every file entity')
 			->addOption('batch-size', null, InputOption::VALUE_REQUIRED, 'How many rows to read and write at once', '500')
-			->addOption('dry-run', null, InputOption::VALUE_NONE, 'Report what would be filled in, write nothing');
+			->addOption('exec', null, InputOption::VALUE_NONE, 'Actually write the detected mime types; without it nothing is written');
 	}
 
 	protected function execute(InputInterface $input, OutputInterface $output): int
 	{
-		$dryRun = (bool) $input->getOption('dry-run');
+		$exec = (bool) $input->getOption('exec');
 		$batchSize = max(1, (int) $input->getOption('batch-size'));
-		$prefix = $dryRun ? '[dry run] ' : '';
+		$prefix = $exec ? '' : '[nothing is written without --exec] ';
 
 		$classes = $this->getFileClasses();
 
@@ -113,7 +113,7 @@ class FillMimeTypeCommand extends Command
 				}
 
 				foreach ($idsByMimeType as $mimeType => $ids) {
-					if (!$dryRun) {
+					if ($exec) {
 						// nízkoúrovňový update schválně, stejně jako to po uploadu dělá
 						// listener - flush by v aplikaci bouchnul timestampy a change logy
 						// úplně všech souborů
@@ -152,7 +152,7 @@ class FillMimeTypeCommand extends Command
 			}
 		}
 
-		if (!$dryRun) {
+		if ($exec) {
 			$output->writeln('No row is left without a mime type, so the column can be made not nullable.');
 		}
 

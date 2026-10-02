@@ -38,7 +38,7 @@ final class FillMimeTypeCommandTest extends TestCase
 		$em = EntityManagerFactory::create($this->dataDir, nullableMimeType: true);
 		$id = $this->createFileWithoutMimeType($em, 'document.txt');
 
-		$tester = $this->runCommand($em);
+		$tester = $this->runCommand($em, ['--exec' => true]);
 
 		self::assertSame('text/plain', $em->find(TestFile::class, $id)->getMimeType());
 		self::assertStringContainsString('1 detected from the file, 0 left at', $tester->getDisplay());
@@ -61,7 +61,7 @@ final class FillMimeTypeCommandTest extends TestCase
 			->execute();
 		$em->clear();
 
-		$tester = $this->runCommand($em);
+		$tester = $this->runCommand($em, ['--exec' => true]);
 
 		self::assertSame('text/plain', $em->find(TestFile::class, $id)->getMimeType());
 		self::assertStringContainsString('1 detected from the file', $tester->getDisplay());
@@ -73,8 +73,8 @@ final class FillMimeTypeCommandTest extends TestCase
 		$em = EntityManagerFactory::create($this->dataDir, nullableMimeType: true);
 		$this->createFileWithoutMimeType($em, 'missing.txt', deleteFile: true);
 
-		$this->runCommand($em);
-		$tester = $this->runCommand($em);
+		$this->runCommand($em, ['--exec' => true]);
+		$tester = $this->runCommand($em, ['--exec' => true]);
 
 		// second run finds it again, has nothing better to say, and leaves it alone
 		self::assertStringContainsString('0 detected from the file', $tester->getDisplay());
@@ -91,7 +91,7 @@ final class FillMimeTypeCommandTest extends TestCase
 		$em->flush();
 		$em->clear();
 
-		$tester = $this->runCommand($em);
+		$tester = $this->runCommand($em, ['--exec' => true]);
 
 		self::assertStringContainsString('0 rows with no usable mime type', $tester->getDisplay());
 	}
@@ -112,7 +112,7 @@ final class FillMimeTypeCommandTest extends TestCase
 			->execute();
 		$em->clear();
 
-		$this->runCommand($em);
+		$this->runCommand($em, ['--exec' => true]);
 
 		self::assertSame('application/custom', $em->find(TestFile::class, $id)->getMimeType());
 	}
@@ -124,7 +124,7 @@ final class FillMimeTypeCommandTest extends TestCase
 		$missingId = $this->createFileWithoutMimeType($em, 'missing.txt', deleteFile: true);
 		$id = $this->createFileWithoutMimeType($em, 'document.txt');
 
-		$tester = $this->runCommand($em);
+		$tester = $this->runCommand($em, ['--exec' => true]);
 
 		// the column is not nullable, so even a row whose file is gone has to end up with
 		// something - otherwise it alone would block the migration
@@ -148,21 +148,21 @@ final class FillMimeTypeCommandTest extends TestCase
 			$this->createFileWithoutMimeType($em, 'c.txt', deleteFile: true),
 		];
 
-		$tester = $this->runCommand($em);
+		$tester = $this->runCommand($em, ['--exec' => true]);
 
 		self::assertStringContainsString('Missing files (3): ' . implode(', ', $missing), $tester->getDisplay());
 	}
 
 	#[Test]
-	public function dryRunReportsWithoutWriting(): void
+	public function withoutExecNothingIsWritten(): void
 	{
 		$em = EntityManagerFactory::create($this->dataDir, nullableMimeType: true);
 		$id = $this->createFileWithoutMimeType($em, 'document.txt');
 
-		$tester = $this->runCommand($em, ['--dry-run' => true]);
+		$tester = $this->runCommand($em);
 
 		// read around the entity manager - hydrating a row that still has NULL would fail on
-		// the not nullable property, which is exactly the state a dry run has to leave behind
+		// the not nullable property, which is exactly the state a bare run has to leave behind
 		self::assertNull($this->readRawMimeType($em, $id));
 		self::assertStringContainsString('1 detected from the file', $tester->getDisplay());
 	}
@@ -177,7 +177,7 @@ final class FillMimeTypeCommandTest extends TestCase
 			$this->createFileWithoutMimeType($em, 'c.txt'),
 		];
 
-		$tester = $this->runCommand($em, ['--batch-size' => '2']);
+		$tester = $this->runCommand($em, ['--exec' => true, '--batch-size' => '2']);
 
 		foreach ($ids as $id) {
 			self::assertSame('text/plain', $em->find(TestFile::class, $id)->getMimeType());

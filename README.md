@@ -88,6 +88,35 @@ from. That matters: `symfony/mime` maps executable types as readily as any other
 (`application/x-httpd-php` gives `php`), so without that check it would be enough to submit
 content detected as php to get a `.php` file written to disk.
 
+Deleting files no row points to
+---------
+
+Rows can lose their file, and files can lose their row - an interrupted upload, a restore
+from a dump taken before they were added. The second kind never goes away on its own, so
+`files:delete-orphans` walks the data directories and reports every file no row references:
+
+```
+services:
+    - ADT\Files\Console\DeleteOrphanedFilesCommand(%dataDir%, %dataPrivateDir%)
+```
+
+**It deletes nothing without `--exec`.** Run it, read the list, and only then pass the flag.
+A data directory pointing one level too high turns a cleanup into an outage, and a list is
+cheap to throw away.
+
+> **Does your application write anything else into the data directory?** Thumbnails next to
+> the originals, generated previews, anything at all - this command knows about rows and
+> nothing else, so all of it is an orphan to it and `--exec` will delete it. Keep generated
+> files outside the data directories, or do not run this with `--exec`.
+
+Files modified within the last day are left alone (`--min-age`, in seconds). The file is
+written in `postPersist`, so between that write and the commit of the surrounding transaction
+an upload that is about to succeed looks exactly like an orphan.
+
+The command also refuses to run when no row references a file at all - next to a directory
+full of files that is a misconfigured data dir far more often than a storage with nothing
+left to keep.
+
 ### Upgrading from a version with a nullable mime type
 
 The column was nullable until the type was made a plain `string`, so a database written by an
@@ -95,12 +124,13 @@ older version has rows with no mime type and hydrating those now fails. **Fill t
 deploying this version**, with the old one still running:
 
 ```
-$ php bin/console files:fill-mime-type
+$ php bin/console files:fill-mime-type           # reports what it found
+$ php bin/console files:fill-mime-type --exec    # and this writes it
 ```
 
-Register `\ADT\Files\Console\FillMimeTypeCommand` with the same data directories as the
-listener - it deliberately does not load entities, so it runs on both the old and the new
-version:
+Register
+`\ADT\Files\Console\FillMimeTypeCommand` with the same data directories as the listener -
+it deliberately does not load entities, so it runs on both the old and the new version:
 
 ```
 services:
@@ -119,7 +149,7 @@ one - so the command treats that value as "not known yet" rather than as an answ
 the real types on a later run. It only leaves a row alone when it has nothing better to say
 about it than what is already there, which also makes repeated runs free.
 
-* `--dry-run` reports what would be filled in without writing anything
+* `--exec` writes; without it the run only reports what it found
 * `--entity` limits the run to a single entity class
 * `--batch-size` is how many rows are read and written at once, 500 by default
 
