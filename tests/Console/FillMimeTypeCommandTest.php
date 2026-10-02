@@ -177,11 +177,16 @@ final class FillMimeTypeCommandTest extends TestCase
 			$this->createFileWithoutMimeType($em, 'c.txt'),
 		];
 
-		$this->runCommand($em, ['--batch-size' => '2']);
+		$tester = $this->runCommand($em, ['--batch-size' => '2']);
 
 		foreach ($ids as $id) {
 			self::assertSame('text/plain', $em->find(TestFile::class, $id)->getMimeType());
 		}
+
+		// batching is there to keep the queries small, which is nobody's business but this
+		// command's - three files over two batches are still one line saying three
+		self::assertStringContainsString('text/plain: 3', $tester->getDisplay());
+		self::assertSame(1, substr_count($tester->getDisplay(), 'text/plain:'));
 	}
 
 	#[Test]

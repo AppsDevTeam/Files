@@ -83,6 +83,10 @@ class FillMimeTypeCommand extends Command
 
 			$output->writeln($prefix . sprintf('%s: %d rows with no usable mime type', $class, count($rows)));
 
+			// scita se pres vsechny davky a vypisuje az za nimi - davkuje se kvuli velikosti
+			// dotazu, coz je implementacni detail, ktery nema byt videt na vystupu
+			$writtenByMimeType = [];
+
 			foreach (array_chunk($rows, $batchSize) as $chunk) {
 				// seskupené podle mime typu, aby batch stál tolik dotazů, kolik je různých
 				// typů, místo jednoho dotazu na řádek
@@ -119,8 +123,14 @@ class FillMimeTypeCommand extends Command
 							->execute();
 					}
 
-					$output->writeln(sprintf('  %s: %d', $mimeType, count($ids)));
+					$writtenByMimeType[$mimeType] = ($writtenByMimeType[$mimeType] ?? 0) + count($ids);
 				}
+			}
+
+			arsort($writtenByMimeType);
+
+			foreach ($writtenByMimeType as $mimeType => $count) {
+				$output->writeln(sprintf('  %s: %d', $mimeType, $count));
 			}
 		}
 
