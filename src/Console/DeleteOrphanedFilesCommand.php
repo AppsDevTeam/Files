@@ -93,6 +93,7 @@ class DeleteOrphanedFilesCommand extends Command
 
 		$orphans = 0;
 		$bytes = 0;
+		$emptyDirectories = 0;
 		$failures = [];
 
 		foreach ($directories as $directory) {
@@ -121,14 +122,15 @@ class DeleteOrphanedFilesCommand extends Command
 					$failures[] = $relativePath;
 				}
 			}
+
+			if ($exec) {
+				$emptyDirectories += $this->removeEmptyDirectories($directory);
+			}
 		}
 
-		$output->writeln(sprintf(
-			'%s %d orphaned files, %s.',
-			$exec ? 'Deleted' : 'Would delete',
-			$orphans,
-			$this->formatSize($bytes)
-		));
+		$output->writeln($exec
+			? sprintf('Deleted %d orphaned files, %s, and %d empty directories.', $orphans, $this->formatSize($bytes), $emptyDirectories)
+			: sprintf('Would delete %d orphaned files, %s, plus whatever directories that leaves empty.', $orphans, $this->formatSize($bytes)));
 
 		if ($failures) {
 			$output->writeln(sprintf('Could not be deleted (%d): %s', count($failures), implode(', ', $failures)));
@@ -137,6 +139,32 @@ class DeleteOrphanedFilesCommand extends Command
 		}
 
 		return Command::SUCCESS;
+	}
+
+	/**
+	 * Jmena souboru jsou rozsekana do adresaru po id, takze po uklidu zbyva prazdna
+	 * kostra - adresar na kazdych tisic smazanych souboru. Maze se zdola nahoru, aby
+	 * se slozily i vnorene prazdne adresare najednou, a nikdy sam $directory: iterator
+	 * vraci jen jeho obsah.
+	 */
+	protected function removeEmptyDirectories(string $directory): int
+	{
+		$removed = 0;
+
+		$iterator = new RecursiveIteratorIterator(
+			new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS),
+			RecursiveIteratorIterator::CHILD_FIRST
+		);
+
+		foreach ($iterator as $file) {
+			// @rmdir misto kontroly obsahu - na neprazdnem selze, a je to atomicke, takze
+			// mezi kontrolou a mazanim nemuze nikdo nic pridat
+			if ($file->isDir() && @rmdir($file->getPathname())) {
+				$removed++;
+			}
+		}
+
+		return $removed;
 	}
 
 	/**

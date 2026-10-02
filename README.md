@@ -109,6 +109,10 @@ cheap to throw away.
 > nothing else, so all of it is an orphan to it and `--exec` will delete it. Keep generated
 > files outside the data directories, or do not run this with `--exec`.
 
+Directories left empty by the sweep are removed as well - names are split into directories
+by id, so cleaning up files alone would leave a skeleton of empty ones behind. A directory
+that still holds anything stays, and the data directories themselves are never touched.
+
 Files modified within the last day are left alone (`--min-age`, in seconds). The file is
 written in `postPersist`, so between that write and the commit of the surrounding transaction
 an upload that is about to succeed looks exactly like an orphan.

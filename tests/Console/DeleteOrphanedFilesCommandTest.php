@@ -93,6 +93,78 @@ final class DeleteOrphanedFilesCommandTest extends TestCase
 		self::assertFileDoesNotExist($thumbnail);
 	}
 
+	/**
+	 * Names are split into directories by id, so a sweep that only removed files would
+	 * leave a skeleton of empty ones behind - one per thousand deleted files.
+	 */
+	#[Test]
+	public function directoryLeftEmptyIsRemovedToo(): void
+	{
+		$em = EntityManagerFactory::create($this->dataDir);
+		$this->createFile($em);
+		$this->createOrphan('165/77_g4jg4_document.txt');
+
+		$tester = $this->runCommand($em, ['--exec' => true]);
+
+		self::assertDirectoryDoesNotExist($this->dataDir . '/165');
+		self::assertStringContainsString('and 1 empty directories', $tester->getDisplay());
+	}
+
+	#[Test]
+	public function nestedEmptyDirectoriesCollapseInOnePass(): void
+	{
+		$em = EntityManagerFactory::create($this->dataDir);
+		$this->createFile($em);
+		$this->createOrphan('165/77/deep/document.txt');
+
+		$this->runCommand($em, ['--exec' => true]);
+
+		self::assertDirectoryDoesNotExist($this->dataDir . '/165');
+	}
+
+	#[Test]
+	public function directoryStillHoldingSomethingSurvives(): void
+	{
+		$em = EntityManagerFactory::create($this->dataDir);
+		$this->createFile($em);
+
+		$this->createOrphan('165/77_g4jg4_document.txt');
+		// too young to be swept, so the directory it sits in must not go either
+		$fresh = $this->createOrphan('165/99_hhhhh_document.txt', age: 0);
+
+		$this->runCommand($em, ['--exec' => true]);
+
+		self::assertFileExists($fresh);
+		self::assertDirectoryExists($this->dataDir . '/165');
+	}
+
+	#[Test]
+	public function dataDirectoryItselfIsNeverRemoved(): void
+	{
+		$em = EntityManagerFactory::create($this->dataDir);
+		$kept = $this->createFile($em);
+
+		// id 1 produces no subdirectory, so this orphan sits in the data dir root
+		$this->createOrphan('orphan.txt');
+
+		$this->runCommand($em, ['--exec' => true]);
+
+		self::assertDirectoryExists($this->dataDir);
+		self::assertFileExists($kept);
+	}
+
+	#[Test]
+	public function withoutExecNoDirectoryIsRemoved(): void
+	{
+		$em = EntityManagerFactory::create($this->dataDir);
+		$this->createFile($em);
+		$this->createOrphan('165/77_g4jg4_document.txt');
+
+		$this->runCommand($em);
+
+		self::assertDirectoryExists($this->dataDir . '/165');
+	}
+
 	#[Test]
 	public function recentlyWrittenFileIsLeftAlone(): void
 	{
