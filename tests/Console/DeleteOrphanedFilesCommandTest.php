@@ -119,6 +119,39 @@ final class DeleteOrphanedFilesCommandTest extends TestCase
 		self::assertFileDoesNotExist($fresh);
 	}
 
+	/**
+	 * The directory is created when the first file is saved, so an application that never
+	 * stores a private file simply has no private data dir. That is nothing to clean up,
+	 * not a reason to refuse to clean up the other one.
+	 */
+	#[Test]
+	public function missingDirectoryIsSkippedRatherThanFatal(): void
+	{
+		$em = EntityManagerFactory::create($this->dataDir);
+		$this->createFile($em);
+		$orphan = $this->createOrphan('orphan.txt');
+
+		$tester = new CommandTester(new DeleteOrphanedFilesCommand($em, $this->dataDir, $this->dataDir . '/never-created'));
+		$tester->execute(['--exec' => true]);
+
+		self::assertSame(Command::SUCCESS, $tester->getStatusCode());
+		self::assertStringContainsString('does not exist, skipping', $tester->getDisplay());
+		self::assertFileDoesNotExist($orphan, 'The directory that does exist still has to be swept.');
+	}
+
+	#[Test]
+	public function allDirectoriesMissingStopsTheCommand(): void
+	{
+		$em = EntityManagerFactory::create($this->dataDir);
+		$this->createFile($em);
+
+		$tester = new CommandTester(new DeleteOrphanedFilesCommand($em, $this->dataDir . '/nope'));
+		$tester->execute(['--exec' => true]);
+
+		self::assertSame(Command::FAILURE, $tester->getStatusCode());
+		self::assertStringContainsString('None of the configured data directories exists', $tester->getDisplay());
+	}
+
 	#[Test]
 	public function emptyTableStopsTheCommand(): void
 	{

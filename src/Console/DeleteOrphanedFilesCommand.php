@@ -58,14 +58,24 @@ class DeleteOrphanedFilesCommand extends Command
 		$exec = (bool) $input->getOption('exec');
 		$minAge = max(0, (int) $input->getOption('min-age'));
 
-		$directories = array_values(array_unique(array_filter([$this->dataDir, $this->privateDataDir])));
+		$configured = array_values(array_unique(array_filter([$this->dataDir, $this->privateDataDir])));
+		$directories = [];
 
-		foreach ($directories as $directory) {
-			if (!is_dir($directory)) {
-				$output->writeln("'{$directory}' is not a directory.");
-
-				return Command::FAILURE;
+		foreach ($configured as $directory) {
+			// adresar vznika az pri prvnim ulozeni souboru, takze dokud aplikace zadny
+			// privatni soubor nema, privatni adresar proste neni - neni co prochazet,
+			// ale neni to ani duvod skoncit
+			if (is_dir($directory)) {
+				$directories[] = $directory;
+			} else {
+				$output->writeln("'{$directory}' does not exist, skipping.");
 			}
+		}
+
+		if (!$directories) {
+			$output->writeln('None of the configured data directories exists. Nothing was touched.');
+
+			return Command::FAILURE;
 		}
 
 		$known = $this->getKnownFilenames();
