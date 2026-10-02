@@ -73,6 +73,8 @@ class FillMimeTypeCommand extends Command
 
 		$detected = 0;
 		$unchanged = 0;
+		$fallbackCount = 0;
+		/** @var array<string, array<string, list<mixed>>> $fallbacks */
 		$fallbacks = [];
 
 		foreach ($classes as $class) {
@@ -92,7 +94,8 @@ class FillMimeTypeCommand extends Command
 					if ($reason === null) {
 						$detected++;
 					} else {
-						$fallbacks[] = $class . ' #' . $row['id'] . ': ' . $reason;
+						$fallbacks[$class][$reason][] = $row['id'];
+						$fallbackCount++;
 					}
 
 					// radky, ktere uz tu hodnotu maji, se nepreepisuji toutez hodnotou -
@@ -124,13 +127,19 @@ class FillMimeTypeCommand extends Command
 		$output->writeln($prefix . sprintf(
 			'Done: %d detected from the file, %d left at %s, %d already had the value they ended up with.',
 			$detected,
-			count($fallbacks),
+			$fallbackCount,
 			Helpers::DEFAULT_MIME_TYPE,
 			$unchanged
 		));
 
-		foreach ($fallbacks as $fallback) {
-			$output->writeln('  ' . $fallback);
+		// id pohromade a oddelena carkou schvalne - tohle je seznam, se kterym bude nekdo
+		// dal pracovat (dohledat, smazat, nahrat znovu), ne hlaseni ke cteni po radcich
+		foreach ($fallbacks as $class => $byReason) {
+			$output->writeln($class);
+
+			foreach ($byReason as $reason => $ids) {
+				$output->writeln(sprintf('  %s (%d): %s', $reason, count($ids), implode(', ', $ids)));
+			}
 		}
 
 		if (!$dryRun) {
@@ -146,28 +155,29 @@ class FillMimeTypeCommand extends Command
 	 * se kterými se už stejně nedá nic dělat.
 	 *
 	 * @param array{id: mixed, filename: ?string, isPrivate: bool} $row
-	 * @return array{string, ?string} mime type a důvod, proč je to jen fallback
+	 * @return array{string, ?string} mime type a popis skupiny, do ktere radek patri,
+	 *                                pokud je vysledek jen fallback
 	 */
 	protected function resolveMimeType(array $row): array
 	{
 		if ($row['filename'] === null) {
-			return [Helpers::DEFAULT_MIME_TYPE, 'the row has no filename, the upload never finished'];
+			return [Helpers::DEFAULT_MIME_TYPE, 'Rows with no filename, the upload never finished'];
 		}
 
 		$baseDirectory = $row['isPrivate'] ? $this->privateDataDir : $this->dataDir;
 
 		if ($baseDirectory === null) {
-			return [Helpers::DEFAULT_MIME_TYPE, 'the file is private, but no private data dir is configured'];
+			return [Helpers::DEFAULT_MIME_TYPE, 'Private files, but no private data dir is configured'];
 		}
 
 		$path = $baseDirectory . '/' . $row['filename'];
 
 		if (!is_file($path) || !is_readable($path)) {
-			return [Helpers::DEFAULT_MIME_TYPE, 'file is missing'];
+			return [Helpers::DEFAULT_MIME_TYPE, 'Missing files'];
 		}
 
 		if (!$mimeType = @mime_content_type($path)) {
-			return [Helpers::DEFAULT_MIME_TYPE, 'mime type could not be detected'];
+			return [Helpers::DEFAULT_MIME_TYPE, 'Files whose type could not be detected'];
 		}
 
 		return [$mimeType, null];

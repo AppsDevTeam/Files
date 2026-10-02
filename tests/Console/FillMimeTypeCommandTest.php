@@ -131,7 +131,26 @@ final class FillMimeTypeCommandTest extends TestCase
 		self::assertSame(Helpers::DEFAULT_MIME_TYPE, $em->find(TestFile::class, $missingId)->getMimeType());
 		self::assertSame('text/plain', $em->find(TestFile::class, $id)->getMimeType());
 		self::assertStringContainsString('1 detected from the file, 1 left at', $tester->getDisplay());
-		self::assertStringContainsString('file is missing', $tester->getDisplay());
+		self::assertStringContainsString('Missing files (1): ' . $missingId, $tester->getDisplay());
+	}
+
+	/**
+	 * The point of the list is that someone takes it somewhere else - a query, a script - so
+	 * the ids go on one line per reason, not one line per row.
+	 */
+	#[Test]
+	public function idsOfRowsLeftBehindAreListedTogether(): void
+	{
+		$em = EntityManagerFactory::create($this->dataDir, nullableMimeType: true);
+		$missing = [
+			$this->createFileWithoutMimeType($em, 'a.txt', deleteFile: true),
+			$this->createFileWithoutMimeType($em, 'b.txt', deleteFile: true),
+			$this->createFileWithoutMimeType($em, 'c.txt', deleteFile: true),
+		];
+
+		$tester = $this->runCommand($em);
+
+		self::assertStringContainsString('Missing files (3): ' . implode(', ', $missing), $tester->getDisplay());
 	}
 
 	#[Test]
