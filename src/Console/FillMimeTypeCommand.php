@@ -72,13 +72,14 @@ class FillMimeTypeCommand extends Command
 		}
 
 		$detected = 0;
+		$unchanged = 0;
 		$fallbacks = [];
 
 		foreach ($classes as $class) {
 			$identifier = $this->em->getClassMetadata($class)->getSingleIdentifierFieldName();
-			$rows = $this->getRowsWithoutMimeType($class, $identifier);
+			$rows = $this->getRowsToFill($class, $identifier);
 
-			$output->writeln($prefix . sprintf('%s: %d rows without a mime type', $class, count($rows)));
+			$output->writeln($prefix . sprintf('%s: %d rows with no usable mime type', $class, count($rows)));
 
 			foreach (array_chunk($rows, $batchSize) as $chunk) {
 				// seskupené podle mime typu, aby batch stál tolik dotazů, kolik je různých
@@ -92,6 +93,13 @@ class FillMimeTypeCommand extends Command
 						$detected++;
 					} else {
 						$fallbacks[] = $class . ' #' . $row['id'] . ': ' . $reason;
+					}
+
+					// radky, ktere uz tu hodnotu maji, se nepreepisuji toutez hodnotou -
+					// jinak by kazdy beh zbytecne prepsal vsechno, co zjistit nejde
+					if ($mimeType === $row['mimeType']) {
+						$unchanged++;
+						continue;
 					}
 
 					$idsByMimeType[$mimeType][] = $row['id'];
@@ -114,10 +122,11 @@ class FillMimeTypeCommand extends Command
 		}
 
 		$output->writeln($prefix . sprintf(
-			'Done: %d detected from the file, %d fell back to %s.',
+			'Done: %d detected from the file, %d left at %s, %d already had the value they ended up with.',
 			$detected,
 			count($fallbacks),
-			Helpers::DEFAULT_MIME_TYPE
+			Helpers::DEFAULT_MIME_TYPE,
+			$unchanged
 		));
 
 		foreach ($fallbacks as $fallback) {
@@ -187,12 +196,19 @@ class FillMimeTypeCommand extends Command
 	}
 
 	/**
-	 * @return array<array{id: mixed, filename: ?string, isPrivate: bool}>
+	 * Krome prazdnych bere i radky, ktere uz drzi DEFAULT_MIME_TYPE. Ta hodnota znamena
+	 * "nezjisteno", ne "zjisteno, ze je to binarka": zapisuje ji listener, kdyz soubor
+	 * neslo precist, a hlavne ji po radcich s NULL rozsype migrace prepinajici sloupec na
+	 * not null. Kdyby se tu braly jen NULLy, po takove migraci uz by command nemel co
+	 * doplnit a skutecne typy by zustaly nezjistene navzdy.
+	 *
+	 * @return array<array{id: mixed, filename: ?string, isPrivate: bool, mimeType: ?string}>
 	 */
-	protected function getRowsWithoutMimeType(string $class, string $identifier): array
+	protected function getRowsToFill(string $class, string $identifier): array
 	{
 		return $this->em
-			->createQuery('SELECT e.' . $identifier . ' AS id, e.filename AS filename, e.isPrivate AS isPrivate FROM ' . $class . ' e WHERE e.mimeType IS NULL')
+			->createQuery('SELECT e.' . $identifier . ' AS id, e.filename AS filename, e.isPrivate AS isPrivate, e.mimeType AS mimeType FROM ' . $class . ' e WHERE e.mimeType IS NULL OR e.mimeType = :default')
+			->setParameter('default', Helpers::DEFAULT_MIME_TYPE)
 			->getArrayResult();
 	}
 }

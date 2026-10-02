@@ -41,7 +41,59 @@ final class FillMimeTypeCommandTest extends TestCase
 		$tester = $this->runCommand($em);
 
 		self::assertSame('text/plain', $em->find(TestFile::class, $id)->getMimeType());
-		self::assertStringContainsString('1 detected from the file, 0 fell back', $tester->getDisplay());
+		self::assertStringContainsString('1 detected from the file, 0 left at', $tester->getDisplay());
+	}
+
+	/**
+	 * The migration that makes the column not nullable has to put something into the rows
+	 * that are still empty, and the only honest value is the default one. That must not
+	 * cost the command its work: run in that order, it still has to find the real types.
+	 */
+	#[Test]
+	public function rowsHoldingTheDefaultAreExaminedAgain(): void
+	{
+		$em = EntityManagerFactory::create($this->dataDir, nullableMimeType: true);
+		$id = $this->createFileWithoutMimeType($em, 'document.txt');
+
+		// what the migration does to every row left without a mime type
+		$em->createQuery('UPDATE ' . TestFile::class . ' e SET e.mimeType = :mimeType')
+			->setParameter('mimeType', Helpers::DEFAULT_MIME_TYPE)
+			->execute();
+		$em->clear();
+
+		$tester = $this->runCommand($em);
+
+		self::assertSame('text/plain', $em->find(TestFile::class, $id)->getMimeType());
+		self::assertStringContainsString('1 detected from the file', $tester->getDisplay());
+	}
+
+	#[Test]
+	public function rowThatStaysUnknownIsNotRewrittenWithTheSameValue(): void
+	{
+		$em = EntityManagerFactory::create($this->dataDir, nullableMimeType: true);
+		$this->createFileWithoutMimeType($em, 'missing.txt', deleteFile: true);
+
+		$this->runCommand($em);
+		$tester = $this->runCommand($em);
+
+		// second run finds it again, has nothing better to say, and leaves it alone
+		self::assertStringContainsString('0 detected from the file', $tester->getDisplay());
+		self::assertStringContainsString('1 already had the value', $tester->getDisplay());
+	}
+
+	#[Test]
+	public function realMimeTypeIsNeverReExamined(): void
+	{
+		$em = EntityManagerFactory::create($this->dataDir, nullableMimeType: true);
+
+		$file = new TestFile()->setTemporaryContent('contents', 'document.txt');
+		$em->persist($file);
+		$em->flush();
+		$em->clear();
+
+		$tester = $this->runCommand($em);
+
+		self::assertStringContainsString('0 rows with no usable mime type', $tester->getDisplay());
 	}
 
 	#[Test]
@@ -78,7 +130,7 @@ final class FillMimeTypeCommandTest extends TestCase
 		// something - otherwise it alone would block the migration
 		self::assertSame(Helpers::DEFAULT_MIME_TYPE, $em->find(TestFile::class, $missingId)->getMimeType());
 		self::assertSame('text/plain', $em->find(TestFile::class, $id)->getMimeType());
-		self::assertStringContainsString('1 detected from the file, 1 fell back', $tester->getDisplay());
+		self::assertStringContainsString('1 detected from the file, 1 left at', $tester->getDisplay());
 		self::assertStringContainsString('file is missing', $tester->getDisplay());
 	}
 

@@ -108,10 +108,16 @@ services:
 ```
 
 It goes through every mapped entity implementing `ADT\Files\Entities\File`, reads the rows with
-no mime type and detects it from the file on the disk. Rows whose file is missing get
-`application/octet-stream` and are listed at the end, so that a handful of dead rows cannot
+no usable mime type and detects it from the file on the disk. Rows whose file is missing get
+`Helpers::DEFAULT_MIME_TYPE` and are listed at the end, so that a handful of dead rows cannot
 block the migration. Once it is done, deploy this version together with a migration making the
 column not nullable.
+
+Running it the other way round is survivable. A migration making the column not nullable has
+to put something into the rows that are still empty, and the only honest value is the default
+one - so the command treats that value as "not known yet" rather than as an answer, and finds
+the real types on a later run. It only leaves a row alone when it has nothing better to say
+about it than what is already there, which also makes repeated runs free.
 
 * `--dry-run` reports what would be filled in without writing anything
 * `--entity` limits the run to a single entity class
