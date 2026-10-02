@@ -62,6 +62,32 @@ when it is saved, not from its name, so `photo.png` holding a text file reports 
 come back as `application/octet-stream` on their own - and that one case falls back to
 `Helpers::DEFAULT_MIME_TYPE`, which is the same thing.
 
+### Naming a file you only have the bytes of
+
+`setTemporaryContent()` and friends take the name from the caller, which is fine for an
+upload but not for a blob coming out of an API or a generator - a hardcoded name ends up
+lying about what is inside. `Helpers::getNameByContents()` takes the name you want and
+gives it the extension the contents call for, replacing a wrong one if it is already there:
+
+```php
+// 'shift_file.png' for a png, regardless of what the caller guessed
+$file->setTemporaryContent($contents, ADT\Files\Helpers::getNameByContents($contents, 'shift_file'));
+```
+
+The mime type to extension table is `symfony/mime`'s - PHP has none of its own, and keeping
+one per project is what this avoids. A type it does not know becomes
+`Helpers::DEFAULT_EXTENSION`; the real type is in `mimeType` anyway. Override a single type
+through `Helpers::$extensions`, which is consulted first and empty by default:
+
+```php
+ADT\Files\Helpers::$extensions['text/plain'] = 'log';
+```
+
+An extension that `$blockedExtensions` rejects is never used, whichever of the two it came
+from. That matters: `symfony/mime` maps executable types as readily as any other
+(`application/x-httpd-php` gives `php`), so without that check it would be enough to submit
+content detected as php to get a `.php` file written to disk.
+
 ### Upgrading from a version with a nullable mime type
 
 The column was nullable until the type was made a plain `string`, so a database written by an
