@@ -28,6 +28,7 @@ interface File extends Entity
 	public function getOnAfterDelete(): ?callable;
 	public function ignoreMissingFile(): void;
 	public function getIsPrivate(): bool;
+	public function getIsArchived(): bool;
 	public function getMimeType(): string;
 	public function setMimeType(string $mimeType): self;
 }

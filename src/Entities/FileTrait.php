@@ -37,6 +37,12 @@ trait FileTrait
 	#[Column(nullable: false, options: ['default' => 0])]
 	protected bool $isPrivate = false;
 
+	// Soubor lezi v archivu (FileListener $archiveDir), ne v datovem adresari. Nastavuje ho
+	// jen Archiver po overenem presunu - zadny setter, priznak bez presunu by lhal o tom,
+	// kde soubor je.
+	#[Column(nullable: false, options: ['default' => 0])]
+	protected bool $isArchived = false;
+
 	protected ?string $temporaryFile = null;
 	protected ?string $temporaryContent = null;
 	protected ?string $stream = null;
@@ -83,6 +89,12 @@ trait FileTrait
 	public function getUrl(): string
 	{
 		$this->filename; // intentionally, because of lazy ghost objects https://github.com/doctrine/DoctrineBundle/issues/1651#issuecomment-1684297751
+
+		// archiv neni pod document rootem - URL do datoveho adresare by vedla na soubor,
+		// ktery uz tam neni
+		if ($this->isArchived) {
+			throw new Exception('Archived file has no public URL, serve it through the application.');
+		}
 
 		if (!$this->url) {
 			throw new Exception('Url is not set.');
@@ -246,5 +258,12 @@ trait FileTrait
 	public function getCreatedAt(): DateTimeImmutable
 	{
 		return $this->createdAt;
+	}
+
+	public function getIsArchived(): bool
+	{
+		$this->filename; // intentionally, because of lazy ghost objects https://github.com/doctrine/DoctrineBundle/issues/1651#issuecomment-1684297751
+
+		return $this->isArchived;
 	}
 }

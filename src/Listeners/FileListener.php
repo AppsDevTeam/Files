@@ -22,6 +22,7 @@ class FileListener implements EventSubscriber
 	protected string $dataDir;
 	protected ?string $dataUrl = null;
 	protected ?string $privateDataDir = null;
+	protected ?string $archiveDir = null;
 	protected EntityManagerInterface $em;
 	/** @var File[] */
 	protected array $filesToDelete = [];
@@ -32,7 +33,7 @@ class FileListener implements EventSubscriber
 	/**
 	 * @throws Exception
 	 */
-	public function __construct(string $dataDir, ?string $dataUrl = null, ?string $privateDataDir = null, ?EntityManagerInterface $em = null)
+	public function __construct(string $dataDir, ?string $dataUrl = null, ?string $privateDataDir = null, ?EntityManagerInterface $em = null, ?string $archiveDir = null)
 	{
 		if (!$em) {
 			throw new Exception("Class 'Doctrine\ORM\EntityManagerInterface' required by \$em in FileListener::__construct() not found.");
@@ -41,6 +42,20 @@ class FileListener implements EventSubscriber
 		$this->dataDir = $dataDir;
 		$this->dataUrl = $dataUrl;
 		$this->privateDataDir = $privateDataDir;
+		$this->archiveDir = $archiveDir;
+	}
+
+	public function getArchiveDir(): ?string
+	{
+		return $this->archiveDir;
+	}
+
+	/**
+	 * Datovy adresar souboru bez ohledu na archivaci - kam patri, kdyz archivovany neni.
+	 */
+	public function getLocalDataDir(File $file): ?string
+	{
+		return $file->getIsPrivate() ? $this->privateDataDir : $this->dataDir;
 	}
 
 	public function ignoreMissingFiles(bool $ignoreMissingFiles): static
@@ -218,7 +233,14 @@ class FileListener implements EventSubscriber
 
 	protected function setupEntity(File $file): void
 	{
-		$file->setBaseDirectoryPath($file->getIsPrivate() ? $this->privateDataDir : $this->dataDir);
+		// archivovany soubor lezi v archivu bez ohledu na to, jestli je soukromy - pod
+		// document rootem neni ani jeden. Bez $archiveDir zustane datovy adresar a soubor
+		// se proste nenajde: archiv musi byt nastaveny v kazdem procesu, ktery ho cte.
+		if ($file->getIsArchived() && $this->archiveDir !== null) {
+			$file->setBaseDirectoryPath($this->archiveDir);
+		} else {
+			$file->setBaseDirectoryPath($this->getLocalDataDir($file));
+		}
 		if ($this->dataUrl) {
 			$file->setBaseDirectoryUrl($this->dataUrl);
 		}

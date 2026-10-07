@@ -157,6 +157,59 @@ about it than what is already there, which also makes repeated runs free.
 * `--entity` limits the run to a single entity class
 * `--batch-size` is how many rows are read and written at once, 500 by default
 
+Archiving
+---------
+
+Files nobody needs at hand can be moved out of the data directory into an archive - typically a
+compressed NFS share (`/mnt/nfs/share` on our hosts) - and keep working through the same entity:
+`getPath()` and `getContents()` point to the archive once the file is there.
+
+```
+services:
+    - ADT\Files\Listeners\FileListener(%dataDir%, 'files', %dataPrivateDir%, archiveDir: '/mnt/nfs/share/<project>/files')
+    - ADT\Files\Archiver
+
+backgroundQueue:
+    callbacks:
+        archiveFile: [@ADT\Files\Archiver, processArchive]
+```
+
+```php
+$archiver->archive($file);   // only publishes a background job
+```
+
+`archive()` publishes a job and returns. Inside a transaction the job is sent only after the
+commit, so a rollback cancels the archiving as well. The job then
+
+1. copies the file into a temporary file in the archive, `fsync()`s it and checks every step,
+2. compares the size and hash of the copy with the original,
+3. renames it to its final name and sets `isArchived` on the row,
+4. deletes the local copy - only after the commit, the same way deleting files works.
+
+**Why all of that.** The archive is a soft NFS mount: when the server is down, calls fail after
+a few seconds instead of hanging the process - but a write that made it only into the client cache
+is lost, and `fwrite()`/`fclose()` may well report success for it. Only a checked `fsync()` says
+the data is on the server. Any failure throws, background-queue retries the job later (1, 2, 4,
+… 16 minutes) and the local copy stays until the archive one is verified. Running the job again is
+always safe; a run that died between the database and the delete finishes the delete next time.
+
+Writing to the archive yourself? Do the same: write to a temporary file, `fsync()` it, check the
+result, then `rename()`. Anything less can lose data silently when the archive goes away.
+
+* The archive is not under the document root, `getUrl()` of an archived file throws - serve it
+  through the application.
+* `archiveDir` has to be configured in every process that loads archived files (web and
+  consumers), otherwise their path points to the data directory, where they no longer are.
+* Reading an archived file fails while the archive is unavailable. Do not read it in a request
+  that must not fail.
+* Deleting an archived entity deletes the file in the archive; if the archive is unavailable at
+  that moment, the file stays there as an orphan.
+
+### Upgrading
+
+The `isArchived` column (`is_archived`, not null, default 0) is new - add it with a migration
+when updating.
+
 Security
 ---------
 
