@@ -116,8 +116,13 @@ class DeleteOrphanedFilesCommand extends Command
 				// plna cesta, ne relativni - aplikace s verejnym i privatnim adresarem ma
 				// v obou stejne pojmenovane sekce, takze z relativni cesty nejde poznat, kde
 				// soubor lezi, a vypis nejde rovnou predat dal (ls, chown, zaloha...)
+				//
+				// i s --exec a jeste pred smazanim: prochazeni milionu souboru trva dlouho,
+				// bez vypisu nejde poznat, ze se neco deje, a kdyz se beh prerusi, je videt,
+				// co uz je pryc
+				$output->writeln('  ' . $file->getPathname());
+
 				if (!$exec) {
-					$output->writeln('  ' . $file->getPathname());
 					continue;
 				}
 

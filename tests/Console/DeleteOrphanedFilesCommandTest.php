@@ -82,6 +82,8 @@ final class DeleteOrphanedFilesCommandTest extends TestCase
 		self::assertFileDoesNotExist($orphan);
 		self::assertFileExists($kept, 'A file a row points to must survive.');
 		self::assertStringContainsString('Deleted 1 orphaned files', $tester->getDisplay());
+		self::assertStringContainsString('  ' . $orphan . "\n", $tester->getDisplay(), 'Every deleted file must be listed.');
+		self::assertStringNotContainsString($kept, $tester->getDisplay());
 	}
 
 	#[Test]

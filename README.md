@@ -104,6 +104,9 @@ services:
 A data directory pointing one level too high turns a cleanup into an outage, and a list is
 cheap to throw away.
 
+With `--exec` it prints the same list, each file just before it is deleted - redirect it to a
+file and an interrupted run still tells you what is already gone.
+
 > **Does your application write anything else into the data directory?** Thumbnails next to
 > the originals, generated previews, anything at all - this command knows about rows and
 > nothing else, so all of it is an orphan to it and `--exec` will delete it. Keep generated
