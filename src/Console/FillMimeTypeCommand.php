@@ -79,15 +79,18 @@ class FillMimeTypeCommand extends Command
 
 		foreach ($classes as $class) {
 			$identifier = $this->em->getClassMetadata($class)->getSingleIdentifierFieldName();
-			$rows = $this->getRowsToFill($class, $identifier);
 
-			$output->writeln($prefix . sprintf('%s: %d rows with no usable mime type', $class, count($rows)));
+			$output->writeln($prefix . sprintf('%s: %d rows with no usable mime type', $class, $this->countRowsToFill($class)));
 
 			// scita se pres vsechny davky a vypisuje az za nimi - davkuje se kvuli velikosti
-			// dotazu, coz je implementacni detail, ktery nema byt videt na vystupu
+			// dotazu a pameti, coz je implementacni detail, ktery nema byt videt na vystupu
 			$writtenByMimeType = [];
+			$lastId = null;
 
-			foreach (array_chunk($rows, $batchSize) as $chunk) {
+			// po davkach podle id, ne vsechno najednou - miliony radku se do pameti nevejdou
+			while ($chunk = $this->getRowsToFill($class, $identifier, $lastId, $batchSize)) {
+				$lastId = end($chunk)['id'];
+
 				// seskupené podle mime typu, aby batch stál tolik dotazů, kolik je různých
 				// typů, místo jednoho dotazu na řádek
 				$idsByMimeType = [];
@@ -222,13 +225,33 @@ class FillMimeTypeCommand extends Command
 	 * not null. Kdyby se tu braly jen NULLy, po takove migraci uz by command nemel co
 	 * doplnit a skutecne typy by zustaly nezjistene navzdy.
 	 *
+	 * @param mixed $after id posledniho radku predchozi davky, null = od zacatku
 	 * @return array<array{id: mixed, filename: ?string, isPrivate: bool, mimeType: ?string}>
 	 */
-	protected function getRowsToFill(string $class, string $identifier): array
+	protected function getRowsToFill(string $class, string $identifier, mixed $after, int $limit): array
 	{
-		return $this->em
-			->createQuery('SELECT e.' . $identifier . ' AS id, e.filename AS filename, e.isPrivate AS isPrivate, e.mimeType AS mimeType FROM ' . $class . ' e WHERE e.mimeType IS NULL OR e.mimeType = :default')
+		$query = $this->em
+			->createQuery(
+				'SELECT e.' . $identifier . ' AS id, e.filename AS filename, e.isPrivate AS isPrivate, e.mimeType AS mimeType FROM ' . $class . ' e'
+				. ' WHERE (e.mimeType IS NULL OR e.mimeType = :default)'
+				. ($after !== null ? ' AND e.' . $identifier . ' > :after' : '')
+				. ' ORDER BY e.' . $identifier
+			)
 			->setParameter('default', Helpers::DEFAULT_MIME_TYPE)
-			->getArrayResult();
+			->setMaxResults($limit);
+
+		if ($after !== null) {
+			$query->setParameter('after', $after);
+		}
+
+		return $query->getArrayResult();
+	}
+
+	protected function countRowsToFill(string $class): int
+	{
+		return (int) $this->em
+			->createQuery('SELECT COUNT(e) FROM ' . $class . ' e WHERE e.mimeType IS NULL OR e.mimeType = :default')
+			->setParameter('default', Helpers::DEFAULT_MIME_TYPE)
+			->getSingleScalarResult();
 	}
 }

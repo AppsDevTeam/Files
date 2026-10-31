@@ -190,6 +190,23 @@ final class FillMimeTypeCommandTest extends TestCase
 	}
 
 	#[Test]
+	public function rowsStillMatchingAfterTheirBatchAreNotReadAgain(): void
+	{
+		// a missing file stays at the default, so its row still matches the query after
+		// its batch is written - the next batch must continue after it, not start over
+		$em = EntityManagerFactory::create($this->dataDir, nullableMimeType: true);
+		$this->createFileWithoutMimeType($em, 'gone-1.txt', deleteFile: true);
+		$this->createFileWithoutMimeType($em, 'gone-2.txt', deleteFile: true);
+		$id = $this->createFileWithoutMimeType($em, 'present.txt');
+
+		$tester = $this->runCommand($em, ['--exec' => true, '--batch-size' => '1']);
+
+		self::assertSame('text/plain', $em->find(TestFile::class, $id)->getMimeType());
+		self::assertStringContainsString('1 detected from the file, 2 left at', $tester->getDisplay());
+		self::assertStringContainsString('Missing files (2)', $tester->getDisplay());
+	}
+
+	#[Test]
 	public function unknownEntityFails(): void
 	{
 		$em = EntityManagerFactory::create($this->dataDir, nullableMimeType: true);
