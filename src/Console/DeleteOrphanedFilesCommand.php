@@ -113,13 +113,16 @@ class DeleteOrphanedFilesCommand extends Command
 				$orphans++;
 				$bytes += $file->getSize();
 
+				// plna cesta, ne relativni - aplikace s verejnym i privatnim adresarem ma
+				// v obou stejne pojmenovane sekce, takze z relativni cesty nejde poznat, kde
+				// soubor lezi, a vypis nejde rovnou predat dal (ls, chown, zaloha...)
 				if (!$exec) {
-					$output->writeln('  ' . $relativePath);
+					$output->writeln('  ' . $file->getPathname());
 					continue;
 				}
 
 				if (!@unlink($file->getPathname())) {
-					$failures[] = $relativePath;
+					$failures[] = $file->getPathname();
 				}
 			}
 

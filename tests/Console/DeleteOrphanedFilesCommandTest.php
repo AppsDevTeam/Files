@@ -47,7 +47,7 @@ final class DeleteOrphanedFilesCommandTest extends TestCase
 
 		self::assertFileExists($orphan);
 		self::assertStringContainsString('Would delete 1 orphaned files', $tester->getDisplay());
-		self::assertStringContainsString('orphan.txt', $tester->getDisplay());
+		self::assertStringContainsString('  ' . $orphan . "\n", $tester->getDisplay());
 	}
 
 	#[Test]
