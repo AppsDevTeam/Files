@@ -195,14 +195,37 @@ class DeleteOrphanedFilesCommand extends Command
 	 * ukazuje jakykoli radek, tak prezije i kdyz lezi "ve spatnem" adresari - u prikazu,
 	 * ktery maze, je lepsi nechat navic nez omylem smazat.
 	 *
+	 * Primo SQL nad tabulkou, ne DQL: DQL pouziva zapnute Doctrine filtry a soft-delete
+	 * filtr by skryl smazane radky, ktere si soubor na disku zamerne nechavaji (kvuli
+	 * obnoveni, viz FileListener::preRemove). Jejich soubory by pak vypadaly jako osirele.
+	 *
 	 * @return array<string, true>
 	 */
 	protected function getKnownFilenames(): array
 	{
 		$known = [];
+		$connection = $this->em->getConnection();
+		$platform = $connection->getDatabasePlatform();
+		$quoteStrategy = $this->em->getConfiguration()->getQuoteStrategy();
+		$queried = [];
 
 		foreach ($this->getFileClasses() as $class) {
-			foreach ($this->em->createQuery('SELECT e.filename FROM ' . $class . ' e WHERE e.filename IS NOT NULL')->getSingleColumnResult() as $filename) {
+			$metadata = $this->em->getClassMetadata($class);
+
+			// u dedicnosti je sloupec v tabulce tridy, ktera pole deklaruje - u single table
+			// je to ta sama tabulka pro vsechny potomky, takze kazdou dotazovat jen jednou
+			$declaringClass = $metadata->fieldMappings['filename']->inherited ?? $class;
+			$declaringMetadata = $this->em->getClassMetadata($declaringClass);
+
+			$table = $quoteStrategy->getTableName($declaringMetadata, $platform);
+			$column = $quoteStrategy->getColumnName('filename', $declaringMetadata, $platform);
+
+			if (isset($queried[$table])) {
+				continue;
+			}
+			$queried[$table] = true;
+
+			foreach ($connection->executeQuery("SELECT $column FROM $table WHERE $column IS NOT NULL")->iterateColumn() as $filename) {
 				$known[$filename] = true;
 			}
 		}

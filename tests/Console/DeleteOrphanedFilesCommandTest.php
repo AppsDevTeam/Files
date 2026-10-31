@@ -7,6 +7,7 @@ namespace ADT\Files\Tests\Console;
 use ADT\Files\Console\DeleteOrphanedFilesCommand;
 use ADT\Files\Tests\Fixtures\Entity\TestFile;
 use ADT\Files\Tests\Fixtures\EntityManagerFactory;
+use ADT\Files\Tests\Fixtures\HideAllFilesFilter;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -48,6 +49,25 @@ final class DeleteOrphanedFilesCommandTest extends TestCase
 		self::assertFileExists($orphan);
 		self::assertStringContainsString('Would delete 1 orphaned files', $tester->getDisplay());
 		self::assertStringContainsString('  ' . $orphan . "\n", $tester->getDisplay());
+	}
+
+	#[Test]
+	public function rowsHiddenByAFilterStillProtectTheirFiles(): void
+	{
+		$em = EntityManagerFactory::create($this->dataDir);
+		$kept = $this->createFile($em);
+		$orphan = $this->createOrphan('orphan.txt');
+
+		// soft-deleted radek si soubor nechava, ale soft-delete filtr ho z dotazu vyradi
+		$em->getConfiguration()->addFilter('hideAll', HideAllFilesFilter::class);
+		$em->getFilters()->enable('hideAll');
+
+		$tester = $this->runCommand($em, ['--exec' => true]);
+
+		self::assertSame(Command::SUCCESS, $tester->getStatusCode());
+		self::assertFileExists($kept);
+		self::assertFileDoesNotExist($orphan);
+		self::assertTrue($em->getFilters()->isEnabled('hideAll'), 'The command must not leave the filters changed.');
 	}
 
 	#[Test]
