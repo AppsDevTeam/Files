@@ -74,8 +74,7 @@ class Archiver
 	 */
 	public function processArchive(string $entityClass, int $fileId): void
 	{
-		$archiveDir = $this->fileListener->getArchiveDir();
-		if ($archiveDir === null) {
+		if ($this->fileListener->getArchiveDir() === null) {
 			throw new PermanentErrorException('Archive directory is not configured, see FileListener $archiveDir.');
 		}
 
@@ -90,7 +89,7 @@ class Archiver
 			throw new PermanentErrorException($entityClass . ' does not implement ' . File::class . '.');
 		}
 
-		$target = $archiveDir . '/' . $file->getFilename();
+		$target = $this->fileListener->getArchiveDirFor($file) . '/' . $file->getFilename();
 
 		if ($file->getIsArchived()) {
 			// Opakovany beh po padu mezi zapisem do DB a smazanim lokalni kopie - entita uz

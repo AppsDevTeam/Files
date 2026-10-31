@@ -120,6 +120,35 @@ final class ArchiverTest extends TestCase
 	}
 
 	#[Test]
+	public function privateFileGoesToPrivateArchiveWhenConfigured(): void
+	{
+		$privateArchiveDir = $this->baseDir . '/archive-private';
+		$em = EntityManagerFactory::create($this->dataDir, archiveDir: $this->archiveDir, privateArchiveDir: $privateArchiveDir);
+		$private = new TestFile()->setTemporaryContent('secret', 'secret.txt')->setIsPrivate(true);
+		$em->persist($private);
+		$public = $this->createFile($em, 'public');
+		$em->flush();
+		$privateLocalPath = $private->getPath();
+
+		$this->archiver($em)->processArchive(TestFile::class, $private->getId());
+		$this->archiver($em)->processArchive(TestFile::class, $public->getId());
+
+		self::assertSame($privateArchiveDir . '/' . $private->getFilename(), $private->getPath());
+		self::assertSame($this->archiveDir . '/' . $public->getFilename(), $public->getPath());
+
+		// a fresh load must look into the private archive too
+		$em->clear();
+		$reloaded = $em->find(TestFile::class, $private->getId());
+		self::assertSame('secret', $reloaded->getContents());
+
+		// a re-run cleaning up a leftover local copy verifies against the private archive
+		file_put_contents($privateLocalPath, 'secret');
+		$this->archiver($em)->processArchive(TestFile::class, $private->getId());
+		self::assertFileDoesNotExist($privateLocalPath);
+		self::assertSame([$reloaded->getPath()], self::filesIn($privateArchiveDir));
+	}
+
+	#[Test]
 	public function processingTwiceIsHarmless(): void
 	{
 		$em = EntityManagerFactory::create($this->dataDir, archiveDir: $this->archiveDir);

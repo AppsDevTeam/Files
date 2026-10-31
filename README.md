@@ -201,6 +201,11 @@ result, then `rename()`. Anything less can lose data silently when the archive g
 
 * The archive is not under the document root, `getUrl()` of an archived file throws - serve it
   through the application.
+* Private files go to `privateArchiveDir` when it is set, otherwise to `archiveDir` as well -
+  set both to keep the layout of the data directories in the archive, e.g.
+  `archiveDir: '/mnt/nfs/share/<project>/www/data', privateArchiveDir: '/mnt/nfs/share/<project>/data'`.
+  The directory is chosen by `isPrivate`, so do not change it on an archived file - its path
+  would then point to the other directory.
 * `archiveDir` has to be configured in every process that loads archived files (web and
   consumers), otherwise their path points to the data directory, where they no longer are.
 * Reading an archived file fails while the archive is unavailable. Do not read it in a request

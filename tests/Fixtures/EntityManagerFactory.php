@@ -26,8 +26,9 @@ final class EntityManagerFactory
 	 *                               database looks before the not null migration is run -
 	 *                               the entity property stays a plain string either way
 	 * @param string|null $archiveDir archive directory of the listener, null = archiving not configured
+	 * @param string|null $privateArchiveDir archive directory of private files, null = $archiveDir
 	 */
-	public static function create(string $dataDir, bool $adt = true, bool $nullableMimeType = false, ?string $archiveDir = null): EntityManagerInterface
+	public static function create(string $dataDir, bool $adt = true, bool $nullableMimeType = false, ?string $archiveDir = null, ?string $privateArchiveDir = null): EntityManagerInterface
 	{
 		$config = ORMSetup::createAttributeMetadataConfiguration([__DIR__ . '/Entity'], true);
 		$config->enableNativeLazyObjects(true);
@@ -38,7 +39,7 @@ final class EntityManagerFactory
 
 		$em = $adt ? new AdtEntityManager($plainEm) : $plainEm;
 
-		$eventManager->addEventSubscriber(new FileListener($dataDir, null, $dataDir, $em, $archiveDir));
+		$eventManager->addEventSubscriber(new FileListener($dataDir, null, $dataDir, $em, $archiveDir, $privateArchiveDir));
 
 		$allMetadata = $plainEm->getMetadataFactory()->getAllMetadata();
 
