@@ -234,19 +234,31 @@ breaks the other. Everything lives in `ADT\Files\ContentImages`; take only what 
   * a file under the data URL that the owner has stays (a relative `../../data/files/...`, which TinyMCE
     writes, or an absolute URL on one of `$ownHosts` is normalised to the data URL), any other one is
     **copied** - a file of another entity, an upload without an owner, a file without a row under `$dataDir`,
-  * an external image is downloaded (`StreamDownloader`, 10 MB) and remembered by its `sourceUrl`, so an
-    import writing the same URL again does not download it again,
+  * an external image is downloaded only when a `Downloader` is given (opt-in, 10 MB) and remembered by its
+    `sourceUrl`, so an import writing the same URL again does not download it again; without one it stays
+    on its URL,
   * a `blob:` URI, a static path and anything else are left alone,
-  * files of the owner no longer in its HTML are deleted.
+  * files of the owner no longer in any version of its HTML are deleted - the stored row counts too, an owner
+    loaded by Gedmo Translatable in another than the default locale holds the translation, not the default value
+    (a field with an unsaved change, `sync()` called before a flush, wins over the row).
 
   It returns the sources it had to leave as they were (a download failed, not an image, a missing file).
+  A failure of PCRE (a pathological HTML) throws, it never saves an empty HTML instead of the real one.
+* `StreamDownloader` - the `Downloader` the library ships. The URL comes from HTML anybody with the editor
+  typed in, so it guards against SSRF: the host is resolved first and a private, loopback, link-local,
+  reserved or shared (100.64.0.0/10) address is refused, the request goes to the very address that was checked
+  (no second DNS lookup), redirects are followed by hand and every hop is checked again. `allowPrivateNetworks`
+  is for a local environment only.
 * `ContentImageListener` - runs it without the project calling anything: onFlush notes every owner whose
-  HTML changed (or a translation of it, or that still holds a base64 image from before - any save converts it) and the synchronizer runs once the outermost transaction commits.
+  HTML changed (or a translation of it, or that still holds a base64 image from before - any save converts it)
+  and the synchronizer runs once the outermost transaction commits.
   It cannot run inside the flush - a new file gets its URL and a new owner its id only after they are
   saved, and Doctrine 3 dispatches `postFlush` before it clears the unit of work. It therefore needs the
   `ADT\DoctrineComponents\EntityManager` (`TransactionCallbacksInterface`). A deleted owner takes its files
-  along in the same flush. `pause()` / `resume()` switch it off for bulk operations, `$onWarning[]` gets
-  the sources left as they were.
+  along in the same flush, a soft deleted one (Gedmo SoftDeleteable) keeps them until it is deleted for good.
+  `pause()` / `resume()` switch it off for bulk operations, `$onWarning[]` gets the sources left as they were.
+  The synchronization runs after the save has been committed, so `$onError[]` should get its failures - the
+  data are saved, the user must not see a failed save. Without a handler the error is thrown.
 * `GedmoTranslations` - translations of the HTML fields kept by Gedmo Translatable.
 
 ### Setup
@@ -291,7 +303,8 @@ services:
         contentImageClass: App\Model\Entities\ContentImage,
         dataUrl: '/data/files',
         dataDir: %dataDir%/files,
-        ownHosts: [%baseUrl%]
+        ownHosts: [%baseUrl%],
+        downloader: ADT\Files\ContentImages\StreamDownloader() # leave out to keep external images on their URL
     )
     - ADT\Files\ContentImages\ContentImageListener
 ```
@@ -306,7 +319,8 @@ $form->addTextArea('content')
 ```
 
 Content saved before the listener is converted by calling `ContentImageSynchronizer::sync()` on every
-owner once; `describe()` counts the images by kind without writing anything.
+owner once (the listener does not run it a second time on the synchronizer's own flush); `describe()` counts
+the images by kind without writing anything.
 
 Security
 ---------

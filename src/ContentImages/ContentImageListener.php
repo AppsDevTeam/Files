@@ -5,11 +5,15 @@ declare(strict_types=1);
 namespace ADT\Files\ContentImages;
 
 use ADT\DoctrineComponents\TransactionCallbacksInterface;
+use DateTimeImmutable;
+use DateTimeInterface;
 use Doctrine\Common\EventSubscriber;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Event\OnFlushEventArgs;
 use Doctrine\ORM\Events;
+use Gedmo\Mapping\Annotation\SoftDeleteable as SoftDeleteableAttribute;
 use LogicException;
+use ReflectionClass;
 use Throwable;
 
 /**
@@ -35,6 +39,14 @@ class ContentImageListener implements EventSubscriber
 
 	/** @var array<callable(ContentImageOwner, string): void> sources left as they were, see ContentImageSynchronizer::sync() */
 	public array $onWarning = [];
+
+	/**
+	 * The synchronization runs after the owner has been committed, so a failure must not look like a failed save.
+	 * With a handler the error goes here and the other owners are synchronized, without one it is thrown.
+	 *
+	 * @var array<callable(ContentImageOwner, Throwable): void>
+	 */
+	public array $onError = [];
 
 	/**
 	 * @param EntityManagerInterface $em the decorated one implementing TransactionCallbacksInterface - Doctrine hands the inner one to the events
@@ -71,12 +83,12 @@ class ContentImageListener implements EventSubscriber
 		$uow = $args->getObjectManager()->getUnitOfWork();
 
 		foreach ($uow->getScheduledEntityDeletions() as $entity) {
-			if ($entity instanceof ContentImageOwner && $entity->getId() !== null) {
+			if ($entity instanceof ContentImageOwner && $entity->getId() !== null && !$this->isSoftDeleted($entity)) {
 				$this->synchronizer->removeAll($this->synchronizer->getOwnerClass($entity), (string) $entity->getId());
 			}
 		}
 
-		if ($this->paused || $this->syncing) {
+		if ($this->paused || $this->syncing || $this->synchronizer->isSyncing()) {
 			return;
 		}
 
@@ -107,7 +119,8 @@ class ContentImageListener implements EventSubscriber
 
 	/**
 	 * Its HTML changed, or it still holds a base64 image from before the listener - saving the entity converts it,
-	 * even when the HTML itself was not touched.
+	 * even when the HTML itself was not touched. A data URI that cannot become a file (SVG, broken base64) does not
+	 * count, it would make every save of the entity sync and warn again.
 	 *
 	 * @param string[] $changedFields
 	 */
@@ -121,12 +134,34 @@ class ContentImageListener implements EventSubscriber
 		foreach ($owner->getContentImageFields() as $field) {
 			foreach (Html::strings($metadata->getFieldValue($owner, $field)) as $html) {
 				foreach (Html::getSources($html) as $src) {
-					if (str_starts_with(strtolower($src), 'data:')) {
+					if (str_starts_with(strtolower($src), 'data:') && Html::decodeDataUri($src) !== null) {
 						return true;
 					}
 				}
 			}
 		}
+
+		return false;
+	}
+
+	/**
+	 * Gedmo SoftDeleteable turns the deletion into an update, the row stays and can be restored - so do its files.
+	 * Mirrors its rule for a hard delete: hardDelete on and the owner already soft deleted (deletedAt in the past).
+	 */
+	private function isSoftDeleted(object $entity): bool
+	{
+		$ownerClass = $this->synchronizer->getOwnerClass($entity);
+		$class = new ReflectionClass($ownerClass);
+
+		do {
+			foreach ($class->getAttributes(SoftDeleteableAttribute::class) as $attribute) {
+				/** @var SoftDeleteableAttribute $config */
+				$config = $attribute->newInstance();
+				$deletedAt = $this->em->getClassMetadata($ownerClass)->getFieldValue($entity, $config->fieldName);
+
+				return !$config->hardDelete || !$deletedAt instanceof DateTimeInterface || $deletedAt > new DateTimeImmutable();
+			}
+		} while ($class = $class->getParentClass());
 
 		return false;
 	}
@@ -162,7 +197,19 @@ class ContentImageListener implements EventSubscriber
 					continue;
 				}
 
-				foreach ($this->synchronizer->sync($owner) as $src) {
+				try {
+					$warnings = $this->synchronizer->sync($owner);
+				} catch (Throwable $e) {
+					if (!$this->onError) {
+						throw $e;
+					}
+					foreach ($this->onError as $callback) {
+						$callback($owner, $e);
+					}
+					continue;
+				}
+
+				foreach ($warnings as $src) {
 					foreach ($this->onWarning as $callback) {
 						$callback($owner, $src);
 					}

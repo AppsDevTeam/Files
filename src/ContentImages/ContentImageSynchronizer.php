@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ADT\Files\ContentImages;
 
 use ADT\Files\Entities\File;
+use Doctrine\DBAL\Types\Type;
 use Doctrine\ORM\EntityManagerInterface;
 use LogicException;
 use Nette\Utils\Strings;
@@ -15,13 +16,15 @@ use Throwable;
  * - a base64 data URI becomes a new file,
  * - a file of ours (under $dataUrl) the owner has stays, any other one is copied - content copied from one entity
  *   to another gets files of its own,
- * - an external image is downloaded,
+ * - an external image is downloaded when a Downloader is given, otherwise it stays where it is,
  * - a blob URI and anything else is left alone.
- * Files of the owner no longer in its HTML are deleted.
+ * Files of the owner no longer in any version of its HTML are deleted.
  */
 class ContentImageSynchronizer
 {
 	private string $dataPath;
+
+	private bool $syncing = false;
 
 	/** @var string[] */
 	private array $ownHosts;
@@ -45,6 +48,7 @@ class ContentImageSynchronizer
 	 * @param string $dataUrl public URL of the data directory, the same as the FileListener's ('/data/files', or with a host)
 	 * @param string|null $dataDir data directory - only needed to copy files under $dataUrl that have no File row
 	 * @param string[] $ownHosts hosts (or URLs) whose absolute URLs are ours too - the domain of the site
+	 * @param Downloader|null $downloader downloads external images, null = they stay on their URL (opt-in, see StreamDownloader)
 	 */
 	public function __construct(
 		private readonly EntityManagerInterface $em,
@@ -53,7 +57,7 @@ class ContentImageSynchronizer
 		string $dataUrl,
 		private readonly ?string $dataDir = null,
 		array $ownHosts = [],
-		private readonly Downloader $downloader = new StreamDownloader(),
+		private readonly ?Downloader $downloader = null,
 		private readonly ?Translations $translations = null,
 	) {
 		$this->dataPath = trim((string) parse_url($dataUrl, PHP_URL_PATH), '/') . '/';
@@ -83,9 +87,11 @@ class ContentImageSynchronizer
 			$this->owned[$contentImage->getFile()->getId()] = $contentImage;
 		}
 
+		$this->syncing = true;
 		$this->em->beginTransaction();
 		try {
 			$metadata = $this->em->getClassMetadata($this->ownerClass);
+			$storedFields = $this->getFieldsWithoutPendingChange($owner);
 
 			foreach ($owner->getContentImageFields() as $field) {
 				$value = $metadata->getFieldValue($owner, $field);
@@ -105,6 +111,8 @@ class ContentImageSynchronizer
 				}
 			}
 
+			$this->markStoredVersionsUsed($storedFields);
+
 			foreach ($this->owned as $fileId => $contentImage) {
 				if (!isset($this->used[$fileId])) {
 					$this->em->remove($contentImage);
@@ -117,9 +125,19 @@ class ContentImageSynchronizer
 		} catch (Throwable $e) {
 			$this->em->rollback();
 			throw $e;
+		} finally {
+			$this->syncing = false;
 		}
 
 		return array_values(array_unique($this->warnings));
+	}
+
+	/**
+	 * True while sync() runs - its own flush must not schedule the owner again.
+	 */
+	public function isSyncing(): bool
+	{
+		return $this->syncing;
 	}
 
 	/**
@@ -215,9 +233,77 @@ class ContentImageSynchronizer
 		return $this->translations?->find($owner, $this->getOwnerClass($owner), $owner->getContentImageFields()) ?? [];
 	}
 
+	/**
+	 * Fields whose value in the entity is the saved one - an unsaved change (sync() called before a flush) wins over
+	 * the version in the table. Read before sync() rewrites anything.
+	 *
+	 * @return string[]
+	 */
+	private function getFieldsWithoutPendingChange(ContentImageOwner $owner): array
+	{
+		$metadata = $this->em->getClassMetadata($this->ownerClass);
+		$original = $this->em->getUnitOfWork()->getOriginalEntityData($owner);
+
+		return array_values(array_filter(
+			$owner->getContentImageFields(),
+			fn (string $field) => $metadata->hasField($field) && ($original[$field] ?? null) === $metadata->getFieldValue($owner, $field),
+		));
+	}
+
+	/**
+	 * The entity does not have to hold the HTML the table does: an owner loaded by Gedmo Translatable in another than
+	 * the default locale carries the translation, the default value stays in the column. Files that version points at
+	 * are still used, even though sync() never saw them.
+	 *
+	 * @param string[] $fields
+	 */
+	private function markStoredVersionsUsed(array $fields): void
+	{
+		if (!$fields || !array_diff_key($this->owned, $this->used)) {
+			return;
+		}
+
+		$metadata = $this->em->getClassMetadata($this->ownerClass);
+		$connection = $this->em->getConnection();
+		$platform = $connection->getDatabasePlatform();
+		$identifier = $metadata->getIdentifierColumnNames()[0];
+
+		$row = $connection->createQueryBuilder()
+			->select(...array_map(fn (string $field) => $platform->quoteSingleIdentifier($metadata->getColumnName($field)), $fields))
+			->from($platform->quoteSingleIdentifier($metadata->getTableName()))
+			->where($platform->quoteSingleIdentifier($identifier) . ' = :id')
+			->setParameter('id', $this->owner->getId())
+			->executeQuery()
+			->fetchNumeric();
+
+		if ($row === false) {
+			return;
+		}
+
+		$filenames = [];
+		foreach ($fields as $i => $field) {
+			$value = Type::getType((string) $metadata->getTypeOfField($field))->convertToPHPValue($row[$i], $platform);
+
+			foreach (Html::strings($value) as $html) {
+				foreach (Html::getSources($html) as $src) {
+					$path = $this->getOwnPath($src);
+					if ($path !== null) {
+						$filenames[$path] = true;
+					}
+				}
+			}
+		}
+
+		foreach ($this->owned as $fileId => $contentImage) {
+			if (isset($filenames[$contentImage->getFile()->getFilename()])) {
+				$this->used[$fileId] = true;
+			}
+		}
+	}
+
 	private function processHtml(string $html): string
 	{
-		return (string) Html::replaceSources($html, $this->resolve(...));
+		return Html::replaceSources($html, $this->resolve(...));
 	}
 
 	/**
@@ -279,6 +365,10 @@ class ContentImageSynchronizer
 				$this->used[$fileId] = true;
 				return $contentImage->getFile()->getUrl();
 			}
+		}
+
+		if ($this->downloader === null) {
+			return null;
 		}
 
 		$content = $this->downloader->download($src, Html::MAX_SIZE);

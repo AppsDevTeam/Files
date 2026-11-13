@@ -37,6 +37,41 @@ final class HtmlTest extends TestCase
 	}
 
 	#[Test]
+	public function srcIsFoundWhereverTheAttributesAre(): void
+	{
+		$cases = [
+			"<img alt='x' src='/b.png' />" => ['/b.png'],
+			'<IMG SRC = "/c.png">' => ['/c.png'],
+			'<img alt src="/d.png">' => ['/d.png'],
+			'<img width=26 height="23" src="/e.png">' => ['/e.png'],
+			'<img alt="a > b" src="/f.png">' => ['/f.png'],
+			'<img src="/g.png" data-src="/h.png">' => ['/g.png'],
+			'<img srcset="/s.png 2x" src="/i.png">' => ['/i.png'],
+			"<img\nclass=\"x\"\nsrc=\"/l.png\">" => ['/l.png'],
+			'<img data-src="/only.png">' => [],
+		];
+
+		foreach ($cases as $html => $expected) {
+			self::assertSame($expected, Html::getSources($html), $html);
+		}
+	}
+
+	#[Test]
+	public function imageOverThePcreBacktrackLimitIsFoundAndReplaced(): void
+	{
+		$value = 'data:image/png;base64,' . base64_encode(self::png('big') . str_repeat("\0", 2 * 1024 * 1024));
+		self::assertGreaterThan((int) ini_get('pcre.backtrack_limit'), strlen($value));
+		$html = '<img data-mce-src="' . $value . '" src="' . $value . '" alt="x"><p>text</p><img src="blob:https://shop.test/1">';
+
+		self::assertSame([$value, 'blob:https://shop.test/1'], Html::getSources($html));
+		self::assertSame([2], Html::findInvalidImages($html));
+		self::assertSame(
+			'<img data-mce-src="' . $value . '" src="/new.png" alt="x"><p>text</p><img src="blob:https://shop.test/1">',
+			Html::replaceSources($html, fn (string $src) => str_starts_with($src, 'data:') ? '/new.png' : null),
+		);
+	}
+
+	#[Test]
 	public function invalidImagesAreBlobsAndBrokenOrUnsupportedDataUris(): void
 	{
 		$html = '<img src="data:image/png;base64,' . base64_encode(self::png('a')) . '">'

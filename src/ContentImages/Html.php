@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace ADT\Files\ContentImages;
 
+use RuntimeException;
+
 /**
  * Pure functions over the HTML of a WYSIWYG editor - no database, no files, usable on its own.
  */
@@ -27,11 +29,16 @@ final class Html
 
 	public const int MAX_SIZE = 10 * 1024 * 1024;
 
-	// the lookbehind keeps data-src and data-mce-src out
-	private const string IMG_SRC_PATTERN = '~(<img\b[^>]*?(?<=\s)src\s*=\s*)(["\'])(.*?)\2~is';
+	/**
+	 * Walks the attributes one by one, so data-src and data-mce-src are skipped, and never backtracks into a value -
+	 * a lazy (.*?) over megabytes of base64 exhausted pcre.backtrack_limit (with JIT too).
+	 * Groups: 1 = the tag up to the value, 2 = the quote, 3 = the value.
+	 */
+	private const string IMG_SRC_PATTERN = '~(<img\b(?:\s+(?!src\s*=)[^\s>"\'=]++(?:\s*=\s*(?:"[^"]*+"|\'[^\']*+\'|[^\s>"\']++))?)*+\s+src\s*=\s*)(?|(")([^"]*+)"|(\')([^\']*+)\')~i';
 
 	/**
 	 * @return string[] decoded src of every <img>, in document order
+	 * @throws RuntimeException when PCRE fails
 	 */
 	public static function getSources(?string $html): array
 	{
@@ -39,7 +46,9 @@ final class Html
 			return [];
 		}
 
-		preg_match_all(self::IMG_SRC_PATTERN, $html, $matches);
+		if (preg_match_all(self::IMG_SRC_PATTERN, $html, $matches) === false) {
+			throw new RuntimeException('Content images: ' . preg_last_error_msg());
+		}
 
 		return array_map(self::decodeAttribute(...), $matches[3]);
 	}
@@ -49,6 +58,8 @@ final class Html
 	 * or null to keep it - the rest of the HTML is left byte for byte as it was.
 	 *
 	 * @param callable(string): ?string $callback
+	 * @return ($html is null ? null : string)
+	 * @throws RuntimeException when PCRE fails - it never returns null for HTML, which would be saved instead of it
 	 */
 	public static function replaceSources(?string $html, callable $callback): ?string
 	{
@@ -56,11 +67,17 @@ final class Html
 			return $html;
 		}
 
-		return preg_replace_callback(self::IMG_SRC_PATTERN, static function (array $match) use ($callback): string {
+		$replaced = preg_replace_callback(self::IMG_SRC_PATTERN, static function (array $match) use ($callback): string {
 			$src = $callback(self::decodeAttribute($match[3]));
 
 			return $src === null ? $match[0] : $match[1] . $match[2] . htmlspecialchars($src, ENT_QUOTES) . $match[2];
 		}, $html);
+
+		if ($replaced === null) {
+			throw new RuntimeException('Content images: ' . preg_last_error_msg());
+		}
+
+		return $replaced;
 	}
 
 	/**

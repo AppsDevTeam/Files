@@ -12,12 +12,18 @@ use ADT\Files\ContentImages\GedmoTranslations;
 use ADT\Files\Tests\Fixtures\Entity\TestArticle;
 use ADT\Files\Tests\Fixtures\Entity\TestContentImage;
 use ADT\Files\Tests\Fixtures\Entity\TestFile;
+use ADT\Files\Tests\Fixtures\Entity\TestSoftDeleteArticle;
+use ADT\Files\Tests\Fixtures\Entity\TestTranslatableArticle;
 use ADT\Files\Tests\Fixtures\EntityManagerFactory;
 use Doctrine\ORM\EntityManagerInterface;
+use Gedmo\SoftDeleteable\SoftDeleteableListener;
 use Gedmo\Translatable\Entity\Translation;
+use Gedmo\Translatable\TranslatableListener;
 use LogicException;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
+use Throwable;
 
 final class ContentImagesTest extends TestCase
 {
@@ -27,6 +33,7 @@ final class ContentImagesTest extends TestCase
 
 	private EntityManagerInterface $em;
 
+	/** @var ContentImageSynchronizer counts its sync() calls in $syncs */
 	private ContentImageSynchronizer $synchronizer;
 
 	private ContentImageListener $listener;
@@ -47,15 +54,29 @@ final class ContentImagesTest extends TestCase
 			/** @var string[] */
 			public array $requested = [];
 
+			/** @var string[] URLs whose download throws */
+			public array $failing = [];
+
 			public function download(string $url, int $maxSize): ?string
 			{
 				$this->requested[] = $url;
+				if (in_array($url, $this->failing, true)) {
+					throw new RuntimeException('Download of ' . $url . ' failed.');
+				}
 				return $this->responses[$url] ?? null;
 			}
 		};
 
 		$translations = new GedmoTranslations($this->em);
-		$this->synchronizer = new ContentImageSynchronizer($this->em, TestFile::class, TestContentImage::class, self::DATA_URL, $this->dataDir, ['https://shop.test/'], $this->downloader, $translations);
+		$this->synchronizer = new class ($this->em, TestFile::class, TestContentImage::class, self::DATA_URL, $this->dataDir, ['https://shop.test/'], $this->downloader, $translations) extends ContentImageSynchronizer {
+			public int $syncs = 0;
+
+			public function sync(ContentImageOwner $owner): array
+			{
+				$this->syncs++;
+				return parent::sync($owner);
+			}
+		};
 		$this->listener = new ContentImageListener($this->em, $this->synchronizer, $translations);
 		$this->em->getEventManager()->addEventSubscriber($this->listener);
 	}
@@ -386,6 +407,169 @@ final class ContentImagesTest extends TestCase
 		);
 
 		self::assertSame(['data' => 1, 'blob' => 1, 'own' => 1, 'external' => 1], $this->synchronizer->describe($article));
+	}
+
+	#[Test]
+	public function imageOverThePcreBacktrackLimitDoesNotEraseTheHtml(): void
+	{
+		$png = HtmlTest::png('big') . str_repeat("\0", 2 * 1024 * 1024);
+
+		$article = $this->createArticle('<div>' . self::img(self::dataUri($png)) . '</div><p>text after the image</p>');
+
+		self::assertStringContainsString('text after the image', (string) $article->getContent());
+		$src = self::sources($article->getContent())[0];
+		self::assertSame($png, $this->fileByUrl($src)->getContents());
+
+		$this->em->clear();
+		self::assertStringContainsString('text after the image', (string) $this->em->find(TestArticle::class, $article->getId())->getContent());
+	}
+
+	#[Test]
+	public function externalImageStaysWithoutDownloader(): void
+	{
+		$url = 'https://cdn.example.com/c.png';
+		$this->listener->pause();
+		$article = $this->createArticle(self::img($url));
+		$this->listener->resume();
+
+		$synchronizer = new ContentImageSynchronizer($this->em, TestFile::class, TestContentImage::class, self::DATA_URL, $this->dataDir);
+
+		self::assertSame([], $synchronizer->sync($article));
+		self::assertSame([$url], self::sources($article->getContent()));
+		self::assertCount(0, $this->owned($article));
+	}
+
+	#[Test]
+	public function filesOfTheDefaultLocaleSurviveAnEditInAnotherOne(): void
+	{
+		$translatable = new TranslatableListener();
+		$translatable->setDefaultLocale('cs');
+		$translatable->setTranslatableLocale('cs');
+		$this->em->getEventManager()->addEventSubscriber($translatable);
+
+		$article = new TestTranslatableArticle()->setContent(self::img(self::dataUri(HtmlTest::png('cs'))));
+		$this->em->persist($article);
+		$this->em->flush();
+		$csFile = $this->fileByUrl(self::sources($article->getContent())[0]);
+		$csPath = $csFile->getPath();
+
+		$this->em->clear();
+		$translatable->setTranslatableLocale('en');
+		$article = $this->em->find(TestTranslatableArticle::class, $article->getId());
+		$article->setContent(self::img(self::dataUri(HtmlTest::png('en'))));
+		$this->em->flush();
+
+		self::assertCount(2, $this->owned($article));
+		self::assertFileExists($csPath);
+
+		// the default locale dropping its image deletes the file
+		$this->em->clear();
+		$translatable->setTranslatableLocale('cs');
+		$article = $this->em->find(TestTranslatableArticle::class, $article->getId());
+		$article->setContent('<p>no image</p>');
+		$this->em->flush();
+
+		self::assertCount(1, $this->owned($article));
+		self::assertFileDoesNotExist($csPath);
+	}
+
+	#[Test]
+	public function directSyncOfAnUnsavedChangeDeletesTheDroppedFile(): void
+	{
+		$article = $this->createArticle(self::img(self::dataUri(HtmlTest::png('kept'))) . self::img(self::dataUri(HtmlTest::png('dropped'))));
+		[$kept, $dropped] = self::sources($article->getContent());
+
+		$article->setContent(self::img($kept));
+		$this->synchronizer->sync($article);
+
+		self::assertCount(1, $this->owned($article));
+		self::assertSame($kept, $this->owned($article)[0]->getFile()->getUrl());
+		self::assertNotSame($dropped, $kept);
+	}
+
+	#[Test]
+	public function softDeletedOwnerKeepsItsFilesUntilItIsDeletedForGood(): void
+	{
+		$this->em->getEventManager()->addEventSubscriber(new SoftDeleteableListener());
+
+		$article = new TestSoftDeleteArticle()->setContent(self::img(self::dataUri(HtmlTest::png('soft'))));
+		$this->em->persist($article);
+		$this->em->flush();
+		$path = $this->owned($article)[0]->getFile()->getPath();
+
+		$this->em->remove($article);
+		$this->em->flush();
+
+		self::assertNotNull($article->getDeletedAt());
+		self::assertCount(1, $this->owned($article));
+		self::assertFileExists($path);
+
+		$this->em->remove($article);
+		$this->em->flush();
+
+		self::assertSame([], $this->em->getRepository(TestContentImage::class)->findAll());
+		self::assertFileDoesNotExist($path);
+	}
+
+	#[Test]
+	public function directSyncDoesNotRunTwice(): void
+	{
+		$this->listener->pause();
+		$article = $this->createArticle(self::img(self::dataUri(HtmlTest::png('direct'))));
+		$this->listener->resume();
+		$this->synchronizer->syncs = 0;
+
+		$this->synchronizer->sync($article);
+
+		self::assertSame(1, $this->synchronizer->syncs);
+		self::assertCount(1, $this->owned($article));
+	}
+
+	#[Test]
+	public function dataUriThatCannotBeStoredDoesNotSyncEverySave(): void
+	{
+		$svg = 'data:image/svg+xml;base64,' . base64_encode('<svg xmlns="http://www.w3.org/2000/svg"/>');
+		$this->listener->pause();
+		$article = $this->createArticle(self::img($svg));
+		$this->listener->resume();
+		$this->synchronizer->syncs = 0;
+
+		$article->setTitle('only the title');
+		$this->em->flush();
+
+		self::assertSame(0, $this->synchronizer->syncs);
+		self::assertSame([$svg], self::sources($article->getContent()));
+	}
+
+	#[Test]
+	public function failedSyncGoesToOnErrorAndTheOtherOwnersAreSynced(): void
+	{
+		$url = 'https://cdn.example.com/boom.png';
+		$this->downloader->failing[] = $url;
+		$errors = [];
+		$this->listener->onError[] = function (ContentImageOwner $owner, Throwable $e) use (&$errors): void {
+			$errors[] = $e->getMessage();
+		};
+
+		$failing = new TestArticle()->setContent(self::img($url));
+		$fine = new TestArticle()->setContent(self::img(self::dataUri(HtmlTest::png('fine'))));
+		$this->em->persist($failing);
+		$this->em->persist($fine);
+		$this->em->flush();
+
+		self::assertSame(['Download of ' . $url . ' failed.'], $errors);
+		self::assertSame([$url], self::sources($failing->getContent()));
+		self::assertCount(1, $this->owned($fine));
+	}
+
+	#[Test]
+	public function failedSyncIsThrownWithoutOnError(): void
+	{
+		$url = 'https://cdn.example.com/boom.png';
+		$this->downloader->failing[] = $url;
+
+		$this->expectException(RuntimeException::class);
+		$this->createArticle(self::img($url));
 	}
 
 	private static function removeDirectory(string $dir): void
