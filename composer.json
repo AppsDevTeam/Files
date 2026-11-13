@@ -30,14 +30,15 @@
 		}
 	},
 	"require-dev": {
-		"gedmo/doctrine-extensions": "^3.20",
+		"gedmo/doctrine-extensions": "^3.21",
 		"phpunit/phpunit": "^11.5 | ^12.0 | ^13.0",
 		"symfony/console": "^6.0 | ^7.0 | ^8.0",
 		"adt/background-queue": "^5.0"
 	},
 	"suggest": {
 		"symfony/console": "To run files:fill-mime-type, the backfill of mime types of files saved before the column existed",
-		"adt/background-queue": "To move files to an archive in the background (ADT\\Files\\Archiver)"
+		"adt/background-queue": "To move files to an archive in the background (ADT\\Files\\Archiver)",
+		"gedmo/doctrine-extensions": "To keep the images of translated HTML fields as files too (ADT\\Files\\ContentImages\\GedmoTranslations)"
 	},
 	"autoload-dev": {
 		"psr-4": {
