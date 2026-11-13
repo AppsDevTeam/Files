@@ -88,6 +88,8 @@ class ContentImageSynchronizer
 		}
 
 		$this->syncing = true;
+		$connection = $this->em->getConnection();
+		$level = $connection->getTransactionNestingLevel();
 		$this->em->beginTransaction();
 		try {
 			$metadata = $this->em->getClassMetadata($this->ownerClass);
@@ -123,7 +125,12 @@ class ContentImageSynchronizer
 			$this->em->flush();
 			$this->em->commit();
 		} catch (Throwable $e) {
-			$this->em->rollback();
+			// back to exactly the level before sync(): a failed flush of the ADT EntityManager 3 has rolled every
+			// transaction back (another rollback would throw NoActiveTransaction instead of the cause), version 2
+			// leaves its own one open
+			while ($connection->getTransactionNestingLevel() > $level) {
+				$this->em->rollback();
+			}
 			throw $e;
 		} finally {
 			$this->syncing = false;

@@ -15,6 +15,7 @@ use ADT\Files\Tests\Fixtures\Entity\TestFile;
 use ADT\Files\Tests\Fixtures\Entity\TestSoftDeleteArticle;
 use ADT\Files\Tests\Fixtures\Entity\TestTranslatableArticle;
 use ADT\Files\Tests\Fixtures\EntityManagerFactory;
+use Doctrine\DBAL\Exception\NotNullConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use Gedmo\SoftDeleteable\SoftDeleteableListener;
 use Gedmo\Translatable\Entity\Translation;
@@ -490,7 +491,7 @@ final class ContentImagesTest extends TestCase
 	#[Test]
 	public function softDeletedOwnerKeepsItsFilesUntilItIsDeletedForGood(): void
 	{
-		$this->em->getEventManager()->addEventSubscriber(new SoftDeleteableListener());
+		$this->em->getEventManager()->addEventSubscriber(new SoftDeleteableListener(handlePostFlushEvent: true));
 
 		$article = new TestSoftDeleteArticle()->setContent(self::img(self::dataUri(HtmlTest::png('soft'))));
 		$this->em->persist($article);
@@ -504,11 +505,34 @@ final class ContentImagesTest extends TestCase
 		self::assertCount(1, $this->owned($article));
 		self::assertFileExists($path);
 
+		// the listener detaches a soft deleted entity in postFlush, deleting it for good needs a fresh one
+		$this->em->clear();
+		$article = $this->em->find(TestSoftDeleteArticle::class, $article->getId());
 		$this->em->remove($article);
 		$this->em->flush();
 
 		self::assertSame([], $this->em->getRepository(TestContentImage::class)->findAll());
 		self::assertFileDoesNotExist($path);
+	}
+
+	#[Test]
+	public function failedFlushOfSyncKeepsItsCause(): void
+	{
+		$this->listener->pause();
+		$article = $this->createArticle(self::img(self::dataUri(HtmlTest::png('cause'))));
+		$this->listener->resume();
+
+		// a row with its not null columns empty makes the flush inside sync() fail
+		$this->em->persist(new Translation());
+		$level = $this->em->getConnection()->getTransactionNestingLevel();
+
+		try {
+			$this->synchronizer->sync($article);
+			self::fail('sync() should have failed.');
+		} catch (NotNullConstraintViolationException) {
+		}
+
+		self::assertSame($level, $this->em->getConnection()->getTransactionNestingLevel());
 	}
 
 	#[Test]
