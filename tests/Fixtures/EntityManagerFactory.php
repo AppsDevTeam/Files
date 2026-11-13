@@ -12,6 +12,7 @@ use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\ORMSetup;
 use Doctrine\ORM\Tools\SchemaTool;
+use Gedmo\Translatable\Entity\Translation;
 
 final class EntityManagerFactory
 {
@@ -27,10 +28,12 @@ final class EntityManagerFactory
 	 *                               the entity property stays a plain string either way
 	 * @param string|null $archiveDir archive directory of the listener, null = archiving not configured
 	 * @param string|null $privateArchiveDir archive directory of private files, null = $archiveDir
+	 * @param string|null $dataUrl public URL of the data directory, null = files have no URL
 	 */
-	public static function create(string $dataDir, bool $adt = true, bool $nullableMimeType = false, ?string $archiveDir = null, ?string $privateArchiveDir = null): EntityManagerInterface
+	public static function create(string $dataDir, bool $adt = true, bool $nullableMimeType = false, ?string $archiveDir = null, ?string $privateArchiveDir = null, ?string $dataUrl = null): EntityManagerInterface
 	{
-		$config = ORMSetup::createAttributeMetadataConfiguration([__DIR__ . '/Entity'], true);
+		// Gedmo translations are there for the content images tests
+		$config = ORMSetup::createAttributeMetadataConfiguration([__DIR__ . '/Entity', dirname((string) new \ReflectionClass(Translation::class)->getFileName())], true);
 		$config->enableNativeLazyObjects(true);
 
 		$eventManager = new EventManager();
@@ -39,7 +42,7 @@ final class EntityManagerFactory
 
 		$em = $adt ? new AdtEntityManager($plainEm) : $plainEm;
 
-		$eventManager->addEventSubscriber(new FileListener($dataDir, null, $dataDir, $em, $archiveDir, $privateArchiveDir));
+		$eventManager->addEventSubscriber(new FileListener($dataDir, $dataUrl, $dataDir, $em, $archiveDir, $privateArchiveDir));
 
 		$allMetadata = $plainEm->getMetadataFactory()->getAllMetadata();
 

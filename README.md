@@ -218,6 +218,93 @@ result, then `rename()`. Anything less can lose data silently when the archive g
 The `isArchived` column (`is_archived`, not null, default 0) is new - add it with a migration
 when updating.
 
+Content images
+---------
+
+Images in the HTML of a WYSIWYG editor (TinyMCE, Summernote) as files that belong to **exactly one
+entity** - the one whose HTML shows them. A pasted base64 image stops bloating the database, and
+HTML copied from one entity to another gets files of its own, so deleting an image in one never
+breaks the other. Everything lives in `ADT\Files\ContentImages`; take only what the project needs:
+
+* `Html` - pure functions over the HTML, no database: the sources of every `<img>`, rewriting them
+  without touching the rest of the HTML, decoding a base64 data URI (png, jpeg, gif, webp - **no SVG**,
+  served from the data directory it can carry a script) and `findInvalidImages()` for a form validator.
+* `ContentImageSynchronizer` - `sync($owner)` turns the images of an owner into its files:
+  * a base64 data URI becomes a new file,
+  * a file under the data URL that the owner has stays (a relative `../../data/files/...`, which TinyMCE
+    writes, or an absolute URL on one of `$ownHosts` is normalised to the data URL), any other one is
+    **copied** - a file of another entity, an upload without an owner, a file without a row under `$dataDir`,
+  * an external image is downloaded (`StreamDownloader`, 10 MB) and remembered by its `sourceUrl`, so an
+    import writing the same URL again does not download it again,
+  * a `blob:` URI, a static path and anything else are left alone,
+  * files of the owner no longer in its HTML are deleted.
+
+  It returns the sources it had to leave as they were (a download failed, not an image, a missing file).
+* `ContentImageListener` - runs it without the project calling anything: onFlush notes every owner whose
+  HTML changed (or a translation of it) and the synchronizer runs once the outermost transaction commits.
+  It cannot run inside the flush - a new file gets its URL and a new owner its id only after they are
+  saved, and Doctrine 3 dispatches `postFlush` before it clears the unit of work. It therefore needs the
+  `ADT\DoctrineComponents\EntityManager` (`TransactionCallbacksInterface`). A deleted owner takes its files
+  along in the same flush. `pause()` / `resume()` switch it off for bulk operations, `$onWarning[]` gets
+  the sources left as they were.
+* `GedmoTranslations` - translations of the HTML fields kept by Gedmo Translatable.
+
+### Setup
+
+An owner implements `ContentImageOwner` and names its HTML fields - a string column, or a JSON column
+with HTML strings inside, which are walked recursively:
+
+```php
+class Article implements ContentImageOwner
+{
+    public function getContentImageFields(): array
+    {
+        return ['content', 'faq'];
+    }
+}
+```
+
+The project maps `ContentImage` to its own `File` entity:
+
+```php
+#[ORM\Entity]
+class ContentImage extends \ADT\Files\ContentImages\ContentImage
+{
+    use Identifier;
+
+    #[ORM\ManyToOne(targetEntity: File::class)]
+    #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
+    protected File $file;
+}
+```
+
+and registers the services next to `FileListener`:
+
+```neon
+services:
+    - ADT\Files\ContentImages\GedmoTranslations # only with Gedmo Translatable
+    - ADT\Files\ContentImages\ContentImageSynchronizer(
+        fileClass: App\Model\Entities\File,
+        contentImageClass: App\Model\Entities\ContentImage,
+        dataUrl: '/data/files',
+        dataDir: %dataDir%/files,
+        ownHosts: [www.example.com]
+    )
+    - ADT\Files\ContentImages\ContentImageListener
+```
+
+A form refuses what cannot be saved - a `blob:` URI lives only in the browser tab that created it
+(TinyMCE shows one in its source code view for every base64 image, so a block copied from there
+into another tab is dead):
+
+```php
+$form->addTextArea('content')
+    ->addRule(fn ($control) => !Html::findInvalidImages($control->getValue()), 'Insert the image again, please.');
+```
+
+Content saved before the listener is converted by calling `ContentImageSynchronizer::sync()` on every
+owner once; `describe()` counts the images by kind without writing anything.
+
 Security
 ---------
 
