@@ -8,10 +8,12 @@ use ADT\DoctrineComponents\Entities\Traits\Identifier;
 use ADT\Files\ContentImages\ContentImage;
 use ADT\Files\Entities\File;
 use Doctrine\ORM\Mapping\Entity;
+use Doctrine\ORM\Mapping\Index;
 use Doctrine\ORM\Mapping\JoinColumn;
 use Doctrine\ORM\Mapping\ManyToOne;
 
 #[Entity]
+#[Index(name: 'content_image_owner', fields: ['ownerClass', 'ownerId'])]
 class TestContentImage extends ContentImage
 {
 	use Identifier;

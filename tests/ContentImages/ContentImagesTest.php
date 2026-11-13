@@ -55,7 +55,7 @@ final class ContentImagesTest extends TestCase
 		};
 
 		$translations = new GedmoTranslations($this->em);
-		$this->synchronizer = new ContentImageSynchronizer($this->em, TestFile::class, TestContentImage::class, self::DATA_URL, $this->dataDir, ['shop.test'], $this->downloader, $translations);
+		$this->synchronizer = new ContentImageSynchronizer($this->em, TestFile::class, TestContentImage::class, self::DATA_URL, $this->dataDir, ['https://shop.test/'], $this->downloader, $translations);
 		$this->listener = new ContentImageListener($this->em, $this->synchronizer, $translations);
 		$this->em->getEventManager()->addEventSubscriber($this->listener);
 	}
@@ -140,6 +140,21 @@ final class ContentImagesTest extends TestCase
 
 		$article->setContent(self::img(self::dataUri(HtmlTest::png('b'))));
 		$this->em->flush();
+		self::assertCount(1, $this->owned($article));
+	}
+
+	#[Test]
+	public function base64SavedBeforeTheListenerIsConvertedOnAnySave(): void
+	{
+		$content = self::img(self::dataUri(HtmlTest::png('r')));
+		$this->listener->pause();
+		$article = $this->createArticle($content);
+		$this->listener->resume();
+
+		$article->setTitle('only the title');
+		$this->em->flush();
+
+		self::assertStringStartsWith(self::DATA_URL . '/', self::sources($article->getContent())[0]);
 		self::assertCount(1, $this->owned($article));
 	}
 

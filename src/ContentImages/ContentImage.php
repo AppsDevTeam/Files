@@ -13,20 +13,22 @@ use Doctrine\ORM\Mapping as ORM;
  * is two files, so editing one never breaks the other. The owner is polymorphic (class + id, no foreign key),
  * the same shape as Gedmo translations.
  *
- * The project maps the relation to its own File entity:
+ * The project maps the relation to its own File entity - the property keeps the interface type, PHP does not let
+ * a child class change it, the entity class goes to targetEntity. The index is declared there too, not every Doctrine
+ * version inherits one from a mapped superclass:
  *
  *     #[ORM\Entity]
+ *     #[ORM\Index(name: 'content_image_owner', fields: ['ownerClass', 'ownerId'])]
  *     class ContentImage extends \ADT\Files\ContentImages\ContentImage
  *     {
  *         use Identifier;
  *
- *         #[ORM\ManyToOne(targetEntity: File::class)]
+ *         #[ORM\ManyToOne(targetEntity: App\Model\Entities\File::class)]
  *         #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
- *         protected File $file;
+ *         protected \ADT\Files\Entities\File $file;
  *     }
  */
 #[ORM\MappedSuperclass]
-#[ORM\Index(name: 'content_image_owner', fields: ['ownerClass', 'ownerId'])]
 abstract class ContentImage
 {
 	protected File $file;

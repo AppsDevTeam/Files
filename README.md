@@ -241,7 +241,7 @@ breaks the other. Everything lives in `ADT\Files\ContentImages`; take only what 
 
   It returns the sources it had to leave as they were (a download failed, not an image, a missing file).
 * `ContentImageListener` - runs it without the project calling anything: onFlush notes every owner whose
-  HTML changed (or a translation of it) and the synchronizer runs once the outermost transaction commits.
+  HTML changed (or a translation of it, or that still holds a base64 image from before - any save converts it) and the synchronizer runs once the outermost transaction commits.
   It cannot run inside the flush - a new file gets its URL and a new owner its id only after they are
   saved, and Doctrine 3 dispatches `postFlush` before it clears the unit of work. It therefore needs the
   `ADT\DoctrineComponents\EntityManager` (`TransactionCallbacksInterface`). A deleted owner takes its files
@@ -264,17 +264,20 @@ class Article implements ContentImageOwner
 }
 ```
 
-The project maps `ContentImage` to its own `File` entity:
+The project maps `ContentImage` to its own `File` entity. The property keeps the interface type (PHP does not let
+a child class change it), the entity class goes to `targetEntity`. Declare the owner index there as well, not every
+Doctrine version inherits one from a mapped superclass:
 
 ```php
 #[ORM\Entity]
+#[ORM\Index(name: 'content_image_owner', fields: ['ownerClass', 'ownerId'])]
 class ContentImage extends \ADT\Files\ContentImages\ContentImage
 {
     use Identifier;
 
-    #[ORM\ManyToOne(targetEntity: File::class)]
+    #[ORM\ManyToOne(targetEntity: App\Model\Entities\File::class)]
     #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
-    protected File $file;
+    protected \ADT\Files\Entities\File $file;
 }
 ```
 
@@ -288,7 +291,7 @@ services:
         contentImageClass: App\Model\Entities\ContentImage,
         dataUrl: '/data/files',
         dataDir: %dataDir%/files,
-        ownHosts: [www.example.com]
+        ownHosts: [%baseUrl%]
     )
     - ADT\Files\ContentImages\ContentImageListener
 ```

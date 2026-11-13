@@ -44,7 +44,7 @@ class ContentImageSynchronizer
 	 * @param class-string<ContentImage> $contentImageClass
 	 * @param string $dataUrl public URL of the data directory, the same as the FileListener's ('/data/files', or with a host)
 	 * @param string|null $dataDir data directory - only needed to copy files under $dataUrl that have no File row
-	 * @param string[] $ownHosts hosts whose absolute URLs are ours too (the shop's domain)
+	 * @param string[] $ownHosts hosts (or URLs) whose absolute URLs are ours too - the domain of the site
 	 */
 	public function __construct(
 		private readonly EntityManagerInterface $em,
@@ -57,8 +57,10 @@ class ContentImageSynchronizer
 		private readonly ?Translations $translations = null,
 	) {
 		$this->dataPath = trim((string) parse_url($dataUrl, PHP_URL_PATH), '/') . '/';
-		$host = parse_url($dataUrl, PHP_URL_HOST);
-		$this->ownHosts = array_map(strtolower(...), array_filter(array_merge($ownHosts, [$host])));
+		$this->ownHosts = array_map(
+			fn (string $host) => strtolower(parse_url($host, PHP_URL_HOST) ?? $host),
+			array_filter([...$ownHosts, $dataUrl], fn (string $host) => !str_starts_with($host, '/')),
+		);
 	}
 
 	/**

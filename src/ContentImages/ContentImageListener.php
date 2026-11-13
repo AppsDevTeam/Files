@@ -88,7 +88,7 @@ class ContentImageListener implements EventSubscriber
 		}
 
 		foreach ($uow->getScheduledEntityUpdates() as $entity) {
-			if ($entity instanceof ContentImageOwner && array_intersect(array_keys($uow->getEntityChangeSet($entity)), $entity->getContentImageFields())) {
+			if ($entity instanceof ContentImageOwner && $this->needsSync($entity, array_keys($uow->getEntityChangeSet($entity)))) {
 				$this->pending[spl_object_hash($entity)] = [$this->synchronizer->getOwnerClass($entity), $entity];
 			}
 			$this->addTranslationOwner($entity);
@@ -103,6 +103,32 @@ class ContentImageListener implements EventSubscriber
 			$this->em->afterCommit($this->syncPending(...));
 			$this->em->afterRollback($this->clear(...));
 		}
+	}
+
+	/**
+	 * Its HTML changed, or it still holds a base64 image from before the listener - saving the entity converts it,
+	 * even when the HTML itself was not touched.
+	 *
+	 * @param string[] $changedFields
+	 */
+	private function needsSync(ContentImageOwner $owner, array $changedFields): bool
+	{
+		if (array_intersect($changedFields, $owner->getContentImageFields())) {
+			return true;
+		}
+
+		$metadata = $this->em->getClassMetadata($this->synchronizer->getOwnerClass($owner));
+		foreach ($owner->getContentImageFields() as $field) {
+			foreach (Html::strings($metadata->getFieldValue($owner, $field)) as $html) {
+				foreach (Html::getSources($html) as $src) {
+					if (str_starts_with(strtolower($src), 'data:')) {
+						return true;
+					}
+				}
+			}
+		}
+
+		return false;
 	}
 
 	private function addTranslationOwner(object $entity): void
