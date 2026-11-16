@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ADT\Files\Storage;
 
+use Aws\Exception\MultipartUploadException;
 use Aws\S3\Exception\S3Exception;
 use Aws\S3\S3Client;
 use Aws\S3\S3ClientInterface;
@@ -11,6 +12,7 @@ use Aws\S3\MultipartUploader;
 use Aws\S3\StreamWrapper;
 use Exception;
 use GuzzleHttp\Psr7\StreamWrapper as Psr7StreamWrapper;
+use Throwable;
 
 /**
  * Bucket v S3 (Garage, MinIO, AWS) - datove uloziste aplikace i archiv. Vyzaduje
@@ -34,6 +36,9 @@ class S3Storage implements Storage
 	 * neni Content-MD5 celku, overuje se jen velikost; cast ma min. 5 MB.
 	 */
 	public static int $multipartThreshold = 1024 * 1024 * 1024;
+
+	/** Velikost casti multipartu - s 5 MB (minimum S3) by 1 GB znamenal pres 200 pozadavku. */
+	public static int $multipartPartSize = 64 * 1024 * 1024;
 
 	/** @var array<string, S3ClientInterface> protokol wrapperu => klient, ktery ho obsluhuje */
 	private static array $registered = [];
@@ -107,16 +112,7 @@ class S3Storage implements Storage
 
 		try {
 			if ($size >= self::$multipartThreshold) {
-				$uploader = new MultipartUploader($this->client, $localPath, [
-					'bucket' => $this->bucket,
-					'key' => $this->key($name),
-					'before_initiate' => function ($command) use ($contentType): void {
-						if ($contentType !== null) {
-							$command['ContentType'] = $contentType;
-						}
-					},
-				]);
-				$uploader->upload();
+				new MultipartUploader($this->client, $localPath, $this->multipartConfig($name, $contentType))->upload();
 				$etag = '';
 			} else {
 				$result = $this->client->putObject(array_filter([
@@ -130,7 +126,15 @@ class S3Storage implements Storage
 			}
 		} catch (S3Exception $e) {
 			throw new Exception('Uploading ' . $this->getPath($name) . ' failed: ' . ($e->getAwsErrorMessage() ?: $e->getMessage()), 0, $e);
-		} catch (\Aws\Exception\MultipartUploadException $e) {
+		} catch (MultipartUploadException $e) {
+			// nahrane casti by jinak zustaly v bucketu jako nedokonceny upload - Garage je bez
+			// lifecycle pravidla drzi donekonecna
+			if ($id = $e->getState()->getId()) {
+				try {
+					$this->client->abortMultipartUpload($id);
+				} catch (Throwable) {
+				}
+			}
 			throw new Exception('Uploading ' . $this->getPath($name) . ' failed: ' . $e->getMessage(), 0, $e);
 		}
 
@@ -145,6 +149,23 @@ class S3Storage implements Storage
 			$this->delete($name);
 			throw new Exception('Size of the uploaded ' . $this->getPath($name) . ' does not match the original.');
 		}
+	}
+
+	/**
+	 * @return array<string, mixed> konfigurace MultipartUploaderu
+	 */
+	protected function multipartConfig(string $name, ?string $contentType): array
+	{
+		return [
+			'bucket' => $this->bucket,
+			'key' => $this->key($name),
+			'part_size' => self::$multipartPartSize,
+			'before_initiate' => function ($command) use ($contentType): void {
+				if ($contentType !== null) {
+					$command['ContentType'] = $contentType;
+				}
+			},
+		];
 	}
 
 	public function read(string $name)

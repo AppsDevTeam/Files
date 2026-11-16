@@ -44,20 +44,52 @@ final class S3StorageTest extends S3TestCase
 	{
 		$storage = $this->dataStorage();
 		$contents = random_bytes(12 * 1024 * 1024);
-		$threshold = S3Storage::$multipartThreshold;
-		S3Storage::$multipartThreshold = 5 * 1024 * 1024;
+		[$threshold, $partSize] = [S3Storage::$multipartThreshold, S3Storage::$multipartPartSize];
+		S3Storage::$multipartThreshold = S3Storage::$multipartPartSize = 5 * 1024 * 1024;
 
 		try {
 			$storage->put('parts.bin', $this->localFile($contents), 'application/octet-stream');
 		} finally {
-			S3Storage::$multipartThreshold = $threshold;
+			[S3Storage::$multipartThreshold, S3Storage::$multipartPartSize] = [$threshold, $partSize];
 		}
 
 		self::assertSame(12 * 1024 * 1024, $storage->getSize('parts.bin'));
 		$object = self::client()->getObject(['Bucket' => getenv('ADT_FILES_S3_BUCKET'), 'Key' => $this->prefix . '/parts.bin']);
 		self::assertSame($contents, (string) $object['Body']);
 		self::assertSame('application/octet-stream', $object['ContentType']);
-		self::assertStringContainsString('-', trim($object['ETag'], '"'), 'A multipart ETag is not a plain md5.');
+		self::assertStringEndsWith('-3', trim($object['ETag'], '"'), 'Three parts of 5 MB.');
+	}
+
+	#[Test]
+	public function failedMultipartLeavesNoPartsBehind(): void
+	{
+		// the second part goes to an upload id the server does not know, the first was uploaded
+		$storage = new class (self::client(), getenv('ADT_FILES_S3_BUCKET'), $this->prefix) extends S3Storage {
+			protected function multipartConfig(string $name, ?string $contentType): array
+			{
+				$parts = 0;
+				return parent::multipartConfig($name, $contentType) + ['before_upload' => function ($command) use (&$parts): void {
+					if (++$parts === 2) {
+						$command['UploadId'] = 'bogus';
+					}
+				}];
+			}
+		};
+		[$threshold, $partSize] = [S3Storage::$multipartThreshold, S3Storage::$multipartPartSize];
+		S3Storage::$multipartThreshold = S3Storage::$multipartPartSize = 5 * 1024 * 1024;
+
+		try {
+			$storage->put('parts.bin', $this->localFile(random_bytes(12 * 1024 * 1024)));
+			self::fail('The upload must fail.');
+		} catch (Exception $e) {
+			self::assertStringContainsString('Uploading', $e->getMessage());
+		} finally {
+			[S3Storage::$multipartThreshold, S3Storage::$multipartPartSize] = [$threshold, $partSize];
+		}
+
+		$open = self::client()->listMultipartUploads(['Bucket' => getenv('ADT_FILES_S3_BUCKET'), 'Prefix' => $this->prefix . '/']);
+		self::assertSame([], $open['Uploads'] ?? [], 'The failed upload must be aborted.');
+		self::assertNull($storage->getSize('parts.bin'));
 	}
 
 	#[Test]
