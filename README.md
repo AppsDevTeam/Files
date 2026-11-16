@@ -236,11 +236,19 @@ Garage in Docker and exports what the tests read, without it they are skipped.
 Switching the listener to a bucket does nothing to the files saved before - they sit in the
 directory and the rows now point into the bucket, where they are not. `files:migrate-storage`
 carries them over. It takes the *former* storages the way the listener takes its own (data,
-private, archive, private archive) and the targets from the listener as it is configured now:
+private, archive, private archive) and, without targets of its own, copies into the storages
+of the listener as it is configured now:
 
 ```
 services:
     - ADT\Files\Console\MigrateStorageCommand(from: %dataDir%/files, privateFrom: %dataPrivateDir%/files, archiveFrom: '/mnt/nfs/share/<project>/files')
+```
+
+To copy *before* switching the listener, name the targets as well (`to`, `privateTo`,
+`archiveTo`, `privateArchiveTo`, the same four) - the listener is not consulted then:
+
+```
+    - ADT\Files\Console\MigrateStorageCommand(from: %dataDir%/files, privateFrom: %dataPrivateDir%/files, to: @filesStorage, privateTo: @filesPrivateStorage)
 ```
 
 ```
@@ -256,10 +264,11 @@ time: a file already in the target with the right size is skipped. Problems (a m
 a failed copy, a row without a file) are listed with their ids at the end and the run goes on.
 Rows pointing into an archive need `archiveFrom`, without it they are reported.
 
-Switch the configuration and run the command right after, or the other way round - the command
-knows the target from its own arguments, so it runs with the old configuration as well. Between
-the switch and the end of the run the old files are not found. `--delete` is for when the new
-storage has proven itself; until then the directory is the way back.
+Two ways to switch. Targets in the arguments: copy while the application still writes into
+the directory, switch the listener, run once more to pick up what was saved in between. Targets
+from the listener: switch, then run - between the switch and the end of the run the old files
+are not found. `--delete` is for when the new storage has proven itself; until then the directory
+is the way back.
 
 Archiving
 ---------

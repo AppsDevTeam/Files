@@ -18,18 +18,19 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
 
 /**
- * Prenese soubory z puvodnich ulozist (adresare, ze kterych aplikace zacala) do tech, ktere
- * ma FileListener nastavene ted - typicky z disku do S3. Jde po radcich, ne po adresari:
- * soubor bez radku je sirotek (files:delete-orphans), ne neco k prenosu.
+ * Prenese soubory z puvodnich ulozist (adresare, ze kterych aplikace zacala) do novych -
+ * typicky z disku do S3. Cile jsou bud argumenty prikazu (prenos pred prepnutim listeneru),
+ * nebo, kdyz chybi, uloziste FileListeneru (prenos po prepnuti). Jde po radcich, ne po
+ * adresari: soubor bez radku je sirotek (files:delete-orphans), ne neco k prenosu.
  *
  * Bez --exec jen spocita, co by se preneslo. S --exec kopiruje a zdroj NECHAVA, takze
  * se konfigurace da vratit; --delete zdroj po overene kopii smaze (i pri dalsim behu u
  * souboru, ktere uz v cili jsou). Kazdy beh je mozne opakovat: soubor, ktery uz v cili
  * lezi ve spravne velikosti, se preskoci. Chyby se vypisou s id a beh pokracuje.
  *
- * Aplikace muze mezitim bezet s novou konfiguraci: nove soubory jdou rovnou do cile, stare
- * se "nenajdou", dokud nejsou preneseny - proto prenos spustit hned po prepnuti, nebo
- * nejdriv prenest (s puvodni konfiguraci command cil zna z vlastnich argumentu) a pak prepnout.
+ * Aplikace muze mezitim bezet: s cili v argumentech jde vsechno nove porad do puvodnich
+ * ulozist a prenos se dokonci dalsim behem po prepnuti (soubor uz v cili se preskoci);
+ * po prepnuti jdou nove soubory rovnou do cile a stare se "nenajdou", dokud nejsou preneseny.
  */
 #[AsCommand(
 	name: 'files:migrate-storage',
@@ -43,11 +44,17 @@ class MigrateStorageCommand extends Command
 	private ?Storage $privateFrom;
 	private ?Storage $archiveFrom;
 	private ?Storage $privateArchiveFrom;
+	private ?Storage $to;
+	private ?Storage $privateTo;
+	private ?Storage $archiveTo;
+	private ?Storage $privateArchiveTo;
 
 	/**
-	 * Zdroje maji stejny vyznam jako argumenty FileListeneru; cile si command vezme z listeneru.
+	 * Zdroje i cile maji stejny vyznam jako argumenty FileListeneru. Bez $to jsou cilem
+	 * uloziste listeneru (jeho soucasna konfigurace); s $to plati ctverice cilu z argumentu
+	 * a listener se nepouzije.
 	 */
-	public function __construct(EntityManagerInterface $em, FileListener $listener, string|Storage $from, string|Storage|null $privateFrom = null, string|Storage|null $archiveFrom = null, string|Storage|null $privateArchiveFrom = null)
+	public function __construct(EntityManagerInterface $em, FileListener $listener, string|Storage $from, string|Storage|null $privateFrom = null, string|Storage|null $archiveFrom = null, string|Storage|null $privateArchiveFrom = null, string|Storage|null $to = null, string|Storage|null $privateTo = null, string|Storage|null $archiveTo = null, string|Storage|null $privateArchiveTo = null)
 	{
 		parent::__construct();
 
@@ -57,6 +64,10 @@ class MigrateStorageCommand extends Command
 		$this->privateFrom = self::storage($privateFrom);
 		$this->archiveFrom = self::storage($archiveFrom);
 		$this->privateArchiveFrom = self::storage($privateArchiveFrom);
+		$this->to = self::storage($to);
+		$this->privateTo = self::storage($privateTo);
+		$this->archiveTo = self::storage($archiveTo);
+		$this->privateArchiveTo = self::storage($privateArchiveTo);
 	}
 
 	private static function storage(string|Storage|null $storage): ?Storage
@@ -120,7 +131,7 @@ class MigrateStorageCommand extends Command
 					}
 
 					$source = $this->sourceFor($row);
-					$target = $this->listener->getStorage($row['isPrivate'], $row['isArchived']);
+					$target = $this->targetFor($row);
 
 					if ($source === null) {
 						$problems[$class]['Archived rows, but no archive source is configured'][] = $row['id'];
@@ -231,6 +242,20 @@ class MigrateStorageCommand extends Command
 		}
 
 		return true;
+	}
+
+	/**
+	 * Cilove uloziste radku - z argumentu, kdyz jsou, jinak listener.
+	 *
+	 * @param array{isPrivate: bool, isArchived: bool} $row
+	 */
+	protected function targetFor(array $row): Storage
+	{
+		if ($this->to === null) {
+			return $this->listener->getStorage($row['isPrivate'], $row['isArchived']);
+		}
+
+		return FileListener::resolve($this->to, $this->privateTo, $this->archiveTo, $this->privateArchiveTo, $row['isPrivate'], $row['isArchived']);
 	}
 
 	/**

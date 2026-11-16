@@ -88,6 +88,39 @@ final class MigrateStorageCommandTest extends S3TestCase
 	}
 
 	#[Test]
+	public function targetsOfItsOwnCopyBeforeTheListenerIsSwitched(): void
+	{
+		// the listener still writes into the directory, the command already knows the bucket
+		$em = EntityManagerFactory::create($this->dir . '/www', archiveDir: $this->dir . '/archive', privateDataDir: $this->dir . '/private');
+		$public = $this->createFile($em, 'public');
+		$private = $this->createFile($em, 'private', private: true);
+		$archived = $this->createFile($em, 'archived');
+		$this->archiver($em)->processArchive(TestFile::class, $archived->getId());
+		[$data, $privateData, $archive] = [$this->dataStorage(null, 'www'), $this->dataStorage(null, 'private'), $this->archiveStorage()];
+
+		$command = new MigrateStorageCommand($em, self::fileListener($em), $this->dir . '/www', $this->dir . '/private', $this->dir . '/archive', to: $data, privateTo: $privateData, archiveTo: $archive);
+		$tester = new CommandTester($command);
+		self::assertSame(0, $tester->execute(['--exec' => true]));
+		self::assertStringContainsString('Copied 3 files', $tester->getDisplay());
+		self::assertSame(6, $data->getSize($public->getFilename()));
+		self::assertSame(7, $privateData->getSize($private->getFilename()));
+		self::assertSame(8, $archive->getSize($archived->getFilename()));
+
+		// the application keeps working on the directory meanwhile
+		$later = $this->createFile($em, 'later');
+		self::assertSame('later', file_get_contents($this->dir . '/www/' . $later->getFilename()));
+		self::assertSame('public', $em->find(TestFile::class, $public->getId())->getContents());
+
+		// after the switch a run with the targets from the listener picks up the rest
+		$switched = EntityManagerFactory::create($data, archiveDir: $archive, privateDataDir: $privateData, connection: $em->getConnection());
+		$tester = new CommandTester(new MigrateStorageCommand($switched, self::fileListener($switched), $this->dir . '/www', $this->dir . '/private', $this->dir . '/archive'));
+		self::assertSame(0, $tester->execute(['--exec' => true, '--delete' => true]));
+		self::assertStringContainsString('Copied 1 files', $tester->getDisplay());
+		self::assertStringContainsString('3 already in the target, 4 deleted', $tester->getDisplay());
+		self::assertSame('later', $switched->find(TestFile::class, $later->getId())->getContents());
+	}
+
+	#[Test]
 	public function sourceThatDoesNotMatchTheRowIsReportedAndTheRestGoesOn(): void
 	{
 		$former = EntityManagerFactory::create($this->dir . '/www');
