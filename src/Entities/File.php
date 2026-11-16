@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace ADT\Files\Entities;
 
 use ADT\DoctrineComponents\Entities\Entity;
+use ADT\Files\Storage\Storage;
 
 interface File extends Entity
 {
 	public function getPath(): string;
 	public function getContents(): string;
-	public function setBaseDirectoryPath(string $path): self;
+	public function setStorage(Storage $storage): self;
 	public function getUrl(): string;
-	public function setBaseDirectoryUrl(string $url): self;
 	public function setTemporaryFile(string $filePath, string $originalName): self;
 	public function getTemporaryFile(): ?string;
 	public function setTemporaryContent(string $content, string $originalName): self;

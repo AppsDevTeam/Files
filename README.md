@@ -160,12 +160,63 @@ about it than what is already there, which also makes repeated runs free.
 * `--entity` limits the run to a single entity class
 * `--batch-size` is how many rows are read and written at once, 500 by default
 
+Storages
+---------
+
+A file lives in a *storage*: a directory on the disk, or a bucket in S3 (Garage, MinIO, AWS).
+Wherever `FileListener` takes a directory it takes an `ADT\Files\Storage\Storage` as well, so
+the data directory, the private one and the archives can each be either - files on the disk and
+an archive in a bucket, everything in buckets, or the directories you have today, which keep
+working unchanged (a string is wrapped in `LocalStorage` for you).
+
+```
+services:
+    - ADT\Files\Storage\S3Storage::create(
+        endpoint: %s3.endpoint%,      # http://10.0.21.1:3900
+        key: %s3.key%,
+        secret: %s3.secret%,
+        bucket: %s3.bucket%,
+        region: garage,
+        prefix: files,                # optional directory inside the bucket
+        url: 'https://files.example.com/files' # optional, what getUrl() returns; leave out for no URL
+    )
+    - ADT\Files\Listeners\FileListener(dataDir: @ADT\Files\Storage\S3Storage, dataUrl: null, ...)
+```
+
+`S3Storage::create()` builds the client with path style addressing, which Garage and MinIO
+need; pass an `Aws\S3\S3ClientInterface` of your own to the constructor when you have one.
+It needs `aws/aws-sdk-php`, which is only suggested - a project on the disk does not pay for it.
+
+What changes with a bucket:
+
+* `getPath()` is an `s3://bucket/key` URL. PHP file functions (`fopen()`, `file_get_contents()`,
+  `copy()`, Nette's `FileResponse`) read it like a path - the SDK registers a stream wrapper -
+  but anything outside PHP (`exec` of ImageMagick, ffmpeg...) cannot, copy the file to a temporary
+  one first. `getContents()` works everywhere.
+* The wrapper is one per protocol and a protocol has one server. Two storages on the *same*
+  server (data and archive buckets in one Garage) share it; a storage on *another* server
+  gets its own `protocol: 's3-archive'`.
+* `getUrl()` is the `url` of the storage plus the file name, so serve the bucket through nginx
+  (or the Garage website endpoint) under that URL. Without `url` it throws as it does for a
+  missing `$dataUrl`.
+* Uploads send `Content-MD5`, so the server rejects a body that got damaged on the way, and the
+  size is checked afterwards; an object under its final name is always complete.
+* `files:delete-orphans` takes a storage as well and lists the bucket. `files:fill-mime-type` is
+  for rows from before the column existed, which predate S3 - it stays on directories.
+* Files are not tiered inside one bucket. One Garage cluster has one layout for all its buckets,
+  so "the archive on the cheap node" is a *second* cluster (or any other server) with its own
+  `S3Storage` as the archive, see below.
+
+The tests against a real S3 need one: `eval "$(tests/s3/garage.sh up)"` starts a single node
+Garage in Docker and exports what the tests read, without it they are skipped.
+
 Archiving
 ---------
 
-Files nobody needs at hand can be moved out of the data directory into an archive - typically a
-compressed NFS share (`/mnt/nfs/share` on our hosts) - and keep working through the same entity:
-`getPath()` and `getContents()` point to the archive once the file is there.
+Files nobody needs at hand can be moved out of the data storage into an archive - a compressed
+NFS share (`/mnt/nfs/share` on our hosts) or a bucket on another server - and keep working
+through the same entity: `getPath()` and `getContents()` point to the archive once the file
+is there. Any combination works: disk to NFS, disk to bucket, bucket to bucket, bucket to disk.
 
 ```
 services:
@@ -184,17 +235,21 @@ $archiver->archive($file);   // only publishes a background job
 `archive()` publishes a job and returns. Inside a transaction the job is sent only after the
 commit, so a rollback cancels the archiving as well. The job then
 
-1. copies the file into a temporary file in the archive, `fsync()`s it and checks every step,
-2. compares the size and hash of the copy with the original,
-3. renames it to its final name and sets `isArchived` on the row,
-4. deletes the local copy - only after the commit, the same way deleting files works.
+1. checks the size and hash of the file against the row (a bucket file is downloaded first),
+2. puts it into the archive - a directory copies into a temporary file, `fsync()`s it, checks
+   every step and the hash of the copy and only then renames it to its final name; a bucket
+   uploads with `Content-MD5` and checks the size - so under the final name there is never
+   anything but the complete file,
+3. sets `isArchived` on the row,
+4. deletes the original - only after the commit, the same way deleting files works.
 
 **Why all of that.** The archive is a soft NFS mount: when the server is down, calls fail after
 a few seconds instead of hanging the process - but a write that made it only into the client cache
 is lost, and `fwrite()`/`fclose()` may well report success for it. Only a checked `fsync()` says
 the data is on the server. Any failure throws, background-queue retries the job later (1, 2, 4,
-… 16 minutes) and the local copy stays until the archive one is verified. Running the job again is
-always safe; a run that died between the database and the delete finishes the delete next time.
+… 16 minutes) and the original stays until the archive one is verified. Running the job again is
+always safe; a run that died between the database and the delete finishes the delete next time
+(and only when the archive copy is there with the right size).
 
 Writing to the archive yourself? Do the same: write to a temporary file, `fsync()` it, check the
 result, then `rename()`. Anything less can lose data silently when the archive goes away.
@@ -207,7 +262,9 @@ result, then `rename()`. Anything less can lose data silently when the archive g
   The directory is chosen by `isPrivate`, so do not change it on an archived file - its path
   would then point to the other directory.
 * `archiveDir` has to be configured in every process that loads archived files (web and
-  consumers), otherwise their path points to the data directory, where they no longer are.
+  consumers), otherwise their path points to the data storage, where they no longer are.
+* Any of the four can be a `Storage` instead of a directory - an archive in a bucket:
+  `archiveDir: ADT\Files\Storage\S3Storage::create(..., protocol: 's3-archive')`.
 * Reading an archived file fails while the archive is unavailable. Do not read it in a request
   that must not fail.
 * Deleting an archived entity deletes the file in the archive; if the archive is unavailable at
@@ -217,6 +274,15 @@ result, then `rename()`. Anything less can lose data silently when the archive g
 
 The `isArchived` column (`is_archived`, not null, default 0) is new - add it with a migration
 when updating.
+
+### Upgrading to 7.0
+
+The entity no longer carries a directory and a URL but a `Storage`: `setBaseDirectoryPath()` and
+`setBaseDirectoryUrl()` are gone, `setStorage()` took their place, and `FileListener::getArchiveDir()`,
+`getArchiveDirFor()` and `getLocalDataDir()` became `getArchiveStorage()`, `getArchiveStorageFor()`
+and `getDataStorageFor()`. A project that only configures the listener and uses the trait does
+not notice. Saving a file now goes through a temporary file and a verified copy (`fsync()`),
+whatever the storage.
 
 Content images
 ---------

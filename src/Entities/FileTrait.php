@@ -6,6 +6,7 @@ namespace ADT\Files\Entities;
 
 use ADT\Files\BlockedExtensionException;
 use ADT\Files\Helpers;
+use ADT\Files\Storage\Storage;
 use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 use Doctrine\ORM\Mapping\Column;
@@ -46,8 +47,9 @@ trait FileTrait
 	protected ?string $temporaryFile = null;
 	protected ?string $temporaryContent = null;
 	protected ?string $stream = null;
-	protected string $path;
-	protected string $url;
+	// uloziste, ve kterem soubor lezi (datove, nebo archiv) - nastavuje FileListener v
+	// postLoad/postPersist, entita pres nej cte
+	protected ?Storage $storage = null;
 	/** @var callable */
 	protected $onAfterSave;
 	/** @var callable */
@@ -60,27 +62,56 @@ trait FileTrait
 		$this->createdAt = new DateTimeImmutable();
 	}
 
+	/**
+	 * Cesta k souboru - na disku obycejna, v S3 URL stream wrapperu (s3://...), se kterou
+	 * funkce PHP pro soubory pracuji stejne. Viz Storage::getPath().
+	 * @throws Exception
+	 */
 	public function getPath(): string
 	{
 		$this->filename; // intentionally, because of lazy ghost objects https://github.com/doctrine/DoctrineBundle/issues/1651#issuecomment-1684297751
-		return $this->path . '/' . $this->filename;
+		return $this->getStorage()->getPath($this->filename);
 	}
 
+	/**
+	 * @throws Exception
+	 */
 	public function getContents(): string
 	{
-		$path = $this->getPath(); // intentionally, because of lazy ghost objects https://github.com/doctrine/DoctrineBundle/issues/1651#issuecomment-1684297751
+		$this->filename; // intentionally, because of lazy ghost objects https://github.com/doctrine/DoctrineBundle/issues/1651#issuecomment-1684297751
 
-		if ($this->ignoreMissingFile) {
-			return (string) @file_get_contents($path);
+		try {
+			$stream = $this->getStorage()->read($this->filename);
+		} catch (Exception $e) {
+			if ($this->ignoreMissingFile) {
+				return '';
+			}
+			throw $e;
 		}
 
-		return file_get_contents($path);
+		try {
+			return (string) stream_get_contents($stream);
+		} finally {
+			fclose($stream);
+		}
 	}
 
-	public function setBaseDirectoryPath(string $path): self
+	public function setStorage(Storage $storage): self
 	{
-		$this->path = $path;
+		$this->storage = $storage;
 		return $this;
+	}
+
+	/**
+	 * @throws Exception
+	 */
+	protected function getStorage(): Storage
+	{
+		if ($this->storage === null) {
+			throw new Exception('Storage of the file is not set - is ' . \ADT\Files\Listeners\FileListener::class . ' registered?');
+		}
+
+		return $this->storage;
 	}
 
 	/**
@@ -90,23 +121,19 @@ trait FileTrait
 	{
 		$this->filename; // intentionally, because of lazy ghost objects https://github.com/doctrine/DoctrineBundle/issues/1651#issuecomment-1684297751
 
-		// archiv neni pod document rootem - URL do datoveho adresare by vedla na soubor,
-		// ktery uz tam neni
-		if ($this->isArchived) {
-			throw new Exception('Archived file has no public URL, serve it through the application.');
-		}
+		$url = $this->getStorage()->getUrl($this->filename);
 
-		if (!$this->url) {
+		if ($url === null) {
+			// archiv typicky neni pod document rootem - URL do datoveho adresare by vedla na
+			// soubor, ktery uz tam neni
+			if ($this->isArchived) {
+				throw new Exception('Archived file has no public URL, serve it through the application.');
+			}
+
 			throw new Exception('Url is not set.');
 		}
 
-		return $this->url . '/' . $this->filename;
-	}
-
-	public function setBaseDirectoryUrl(string $url): self
-	{
-		$this->url = $url;
-		return $this;
+		return $url;
 	}
 
 	/**

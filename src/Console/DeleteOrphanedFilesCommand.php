@@ -5,11 +5,10 @@ declare(strict_types=1);
 namespace ADT\Files\Console;
 
 use ADT\Files\Entities\File;
+use ADT\Files\Storage\LocalStorage;
+use ADT\Files\Storage\Storage;
 use Doctrine\ORM\EntityManagerInterface;
-use FilesystemIterator;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
-use SplFileInfo;
+use Throwable;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -23,6 +22,8 @@ use Symfony\Component\Console\Output\OutputInterface;
  * Ve vychozim stavu NIC NEMAZE, jen vypisuje. Mazani se zapina --exec, protoze chybne
  * nastaveny datovy adresar nebo aplikace, ktera si do nej uklada i neco jineho, by jinak
  * znamenaly tiche smazani veci, ktere nejdou vratit.
+ *
+ * Uloziste jsou stejna jako ve FileListeneru - adresare nebo Storage (S3 bucket).
  */
 #[AsCommand(
 	name: 'files:delete-orphans',
@@ -34,16 +35,16 @@ class DeleteOrphanedFilesCommand extends Command
 	public const int DEFAULT_MIN_AGE = 86400;
 
 	private EntityManagerInterface $em;
-	private string $dataDir;
-	private ?string $privateDataDir;
+	private Storage $dataStorage;
+	private ?Storage $privateDataStorage;
 
-	public function __construct(EntityManagerInterface $em, string $dataDir, ?string $privateDataDir = null)
+	public function __construct(EntityManagerInterface $em, string|Storage $dataDir, string|Storage|null $privateDataDir = null)
 	{
 		parent::__construct();
 
 		$this->em = $em;
-		$this->dataDir = $dataDir;
-		$this->privateDataDir = $privateDataDir;
+		$this->dataStorage = $dataDir instanceof Storage ? $dataDir : new LocalStorage($dataDir);
+		$this->privateDataStorage = is_string($privateDataDir) ? new LocalStorage($privateDataDir) : $privateDataDir;
 	}
 
 	protected function configure(): void
@@ -58,21 +59,27 @@ class DeleteOrphanedFilesCommand extends Command
 		$exec = (bool) $input->getOption('exec');
 		$minAge = max(0, (int) $input->getOption('min-age'));
 
-		$configured = array_values(array_unique(array_filter([$this->dataDir, $this->privateDataDir])));
-		$directories = [];
+		/** @var Storage[] $storages */
+		$storages = [];
 
-		foreach ($configured as $directory) {
+		foreach ([$this->dataStorage, $this->privateDataStorage] as $storage) {
+			// verejny a privatni adresar muze byt tentyz - prochazet jen jednou
+			if ($storage === null || isset($storages[$storage->getPath('')])) {
+				continue;
+			}
+
 			// adresar vznika az pri prvnim ulozeni souboru, takze dokud aplikace zadny
 			// privatni soubor nema, privatni adresar proste neni - neni co prochazet,
 			// ale neni to ani duvod skoncit
-			if (is_dir($directory)) {
-				$directories[] = $directory;
-			} else {
-				$output->writeln("'{$directory}' does not exist, skipping.");
+			if ($storage instanceof LocalStorage && !is_dir($storage->getDirectory())) {
+				$output->writeln("'{$storage->getDirectory()}' does not exist, skipping.");
+				continue;
 			}
+
+			$storages[$storage->getPath('')] = $storage;
 		}
 
-		if (!$directories) {
+		if (!$storages) {
 			$output->writeln('None of the configured data directories exists. Nothing was touched.');
 
 			return Command::FAILURE;
@@ -96,22 +103,22 @@ class DeleteOrphanedFilesCommand extends Command
 		$emptyDirectories = 0;
 		$failures = [];
 
-		foreach ($directories as $directory) {
-			$output->writeln($directory);
+		foreach ($storages as $storage) {
+			$output->writeln($storage->getPath(''));
 
-			foreach ($this->scan($directory) as $relativePath => $file) {
-				if (isset($known[$relativePath])) {
+			foreach ($storage->list() as $name => [$size, $modified]) {
+				if (isset($known[$name])) {
 					continue;
 				}
 
-				// soubor vznika az v postPersist, takze mezi zapisem na disk a commitem
+				// soubor vznika az v postPersist, takze mezi zapisem do uloziste a commitem
 				// transakce vypada rozdelany upload jako osirely - stari ho ochrani
-				if ($minAge > 0 && $file->getMTime() > time() - $minAge) {
+				if ($minAge > 0 && $modified > time() - $minAge) {
 					continue;
 				}
 
 				$orphans++;
-				$bytes += $file->getSize();
+				$bytes += $size;
 
 				// plna cesta, ne relativni - aplikace s verejnym i privatnim adresarem ma
 				// v obou stejne pojmenovane sekce, takze z relativni cesty nejde poznat, kde
@@ -120,19 +127,26 @@ class DeleteOrphanedFilesCommand extends Command
 				// i s --exec a jeste pred smazanim: prochazeni milionu souboru trva dlouho,
 				// bez vypisu nejde poznat, ze se neco deje, a kdyz se beh prerusi, je videt,
 				// co uz je pryc
-				$output->writeln('  ' . $file->getPathname());
+				$path = $storage->getPath($name);
+				$output->writeln('  ' . $path);
 
 				if (!$exec) {
 					continue;
 				}
 
-				if (!@unlink($file->getPathname())) {
-					$failures[] = $file->getPathname();
+				try {
+					$storage->delete($name);
+				} catch (Throwable) {
+					$failures[] = $path;
+					continue;
+				}
+				if ($storage->getSize($name) !== null) {
+					$failures[] = $path;
 				}
 			}
 
-			if ($exec) {
-				$emptyDirectories += $this->removeEmptyDirectories($directory);
+			if ($exec && $storage instanceof LocalStorage) {
+				$emptyDirectories += $storage->removeEmptyDirectories();
 			}
 		}
 
@@ -147,52 +161,6 @@ class DeleteOrphanedFilesCommand extends Command
 		}
 
 		return Command::SUCCESS;
-	}
-
-	/**
-	 * Jmena souboru jsou rozsekana do adresaru po id, takze po uklidu zbyva prazdna
-	 * kostra - adresar na kazdych tisic smazanych souboru. Maze se zdola nahoru, aby
-	 * se slozily i vnorene prazdne adresare najednou, a nikdy sam $directory: iterator
-	 * vraci jen jeho obsah.
-	 */
-	protected function removeEmptyDirectories(string $directory): int
-	{
-		$removed = 0;
-
-		$iterator = new RecursiveIteratorIterator(
-			new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS),
-			RecursiveIteratorIterator::CHILD_FIRST
-		);
-
-		foreach ($iterator as $file) {
-			// @rmdir misto kontroly obsahu - na neprazdnem selze, a je to atomicke, takze
-			// mezi kontrolou a mazanim nemuze nikdo nic pridat
-			if ($file->isDir() && @rmdir($file->getPathname())) {
-				$removed++;
-			}
-		}
-
-		return $removed;
-	}
-
-	/**
-	 * Klicem je cesta relativni k adresari, protoze presne to je obsah sloupce filename.
-	 *
-	 * @return iterable<string, SplFileInfo>
-	 */
-	protected function scan(string $directory): iterable
-	{
-		$iterator = new RecursiveIteratorIterator(
-			new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS)
-		);
-
-		foreach ($iterator as $file) {
-			if (!$file->isFile()) {
-				continue;
-			}
-
-			yield substr($file->getPathname(), strlen($directory) + 1) => $file;
-		}
 	}
 
 	/**

@@ -78,7 +78,7 @@ final class ArchiverTest extends TestCase
 		$em = EntityManagerFactory::create($this->dataDir);
 		$file = $this->createFile($em);
 
-		$this->expectExceptionMessage('Archive directory is not configured');
+		$this->expectExceptionMessage('Archive is not configured');
 		$this->archiver($em)->archive($file);
 	}
 
