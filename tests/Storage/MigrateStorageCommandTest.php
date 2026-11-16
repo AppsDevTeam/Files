@@ -60,8 +60,9 @@ final class MigrateStorageCommandTest extends S3TestCase
 
 		// a dry run copies nothing
 		$tester = new CommandTester($command);
-		self::assertSame(1, $tester->execute([]), 'The row without a file is reported.');
+		self::assertSame(1, $tester->execute(['--delete' => true]), 'The row without a file is reported.');
 		self::assertStringContainsString('Would copy 3 files', $tester->getDisplay());
+		self::assertStringContainsString('--delete has no effect without --exec', $tester->getDisplay());
 		self::assertNull($data->getSize($public->getFilename()));
 
 		self::assertSame(1, $tester->execute(['--exec' => true]));
@@ -123,6 +124,21 @@ final class MigrateStorageCommandTest extends S3TestCase
 
 		self::assertSame('roundtrip', file_get_contents($this->dir . '/www/' . $file->getFilename()));
 		self::assertNull($bucket->getSize($file->getFilename()));
+	}
+
+	#[Test]
+	public function archivedPublicRowWithOnlyAPrivateArchiveSourceIsReported(): void
+	{
+		$former = EntityManagerFactory::create($this->dir . '/www', archiveDir: $this->dir . '/archive');
+		$archived = $this->createFile($former, 'archived');
+		$this->archiver($former)->processArchive(TestFile::class, $archived->getId());
+
+		$em = EntityManagerFactory::create($this->dataStorage(), archiveDir: $this->archiveStorage(), connection: $former->getConnection());
+		$tester = new CommandTester(new MigrateStorageCommand($em, self::fileListener($em), $this->dir . '/www', privateArchiveFrom: $this->dir . '/archive'));
+
+		self::assertSame(1, $tester->execute(['--exec' => true]));
+		self::assertStringContainsString('no archive source is configured (1): ' . $archived->getId(), $tester->getDisplay());
+		self::assertStringContainsString('Copied 0 files', $tester->getDisplay());
 	}
 
 	#[Test]

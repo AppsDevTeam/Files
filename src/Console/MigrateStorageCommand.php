@@ -80,6 +80,10 @@ class MigrateStorageCommand extends Command
 		$batchSize = max(1, (int) $input->getOption('batch-size'));
 		$prefix = $exec ? '' : '[nothing is copied without --exec] ';
 
+		if ($input->getOption('delete') && !$exec) {
+			$output->writeln('--delete has no effect without --exec, nothing is deleted.');
+		}
+
 		$classes = $this->getFileClasses();
 
 		if ($entity = $input->getOption('entity')) {
@@ -237,7 +241,7 @@ class MigrateStorageCommand extends Command
 	 */
 	protected function sourceFor(array $row): ?Storage
 	{
-		if ($row['isArchived'] && $this->archiveFrom === null && $this->privateArchiveFrom === null) {
+		if ($row['isArchived'] && ($row['isPrivate'] ? $this->privateArchiveFrom ?? $this->archiveFrom : $this->archiveFrom) === null) {
 			return null;
 		}
 
@@ -267,11 +271,15 @@ class MigrateStorageCommand extends Command
 	}
 
 	/**
+	 * U dedicnosti se radky potomka vraci i dotazem na rodice - kazda tabulka (trida, ktera
+	 * filename deklaruje) jen jednou, jinak by se jeji soubory prochazely dvakrat.
+	 *
 	 * @return class-string<File>[]
 	 */
 	protected function getFileClasses(): array
 	{
 		$classes = [];
+		$tables = [];
 
 		foreach ($this->em->getMetadataFactory()->getAllMetadata() as $metadata) {
 			if ($metadata->isMappedSuperclass || $metadata->getReflectionClass()->isAbstract()) {
@@ -281,6 +289,12 @@ class MigrateStorageCommand extends Command
 			if (!$metadata->getReflectionClass()->implementsInterface(File::class)) {
 				continue;
 			}
+
+			$table = $metadata->fieldMappings['filename']->inherited ?? $metadata->getName();
+			if (isset($tables[$table])) {
+				continue;
+			}
+			$tables[$table] = true;
 
 			$classes[] = $metadata->getName();
 		}
