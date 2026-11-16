@@ -69,9 +69,19 @@ class FileListener implements EventSubscriber
 		return $this->dataStorage;
 	}
 
+	public function getPrivateDataStorage(): ?Storage
+	{
+		return $this->privateDataStorage;
+	}
+
 	public function getArchiveStorage(): ?Storage
 	{
 		return $this->archiveStorage;
+	}
+
+	public function getPrivateArchiveStorage(): ?Storage
+	{
+		return $this->privateArchiveStorage;
 	}
 
 	/**
@@ -102,11 +112,31 @@ class FileListener implements EventSubscriber
 	 */
 	public function getStorageFor(File $file): Storage
 	{
-		if ($file->getIsArchived() && ($archive = $this->getArchiveStorageFor($file)) !== null) {
-			return $archive;
+		return $this->getStorage($file->getIsPrivate(), $file->getIsArchived());
+	}
+
+	/**
+	 * Totez podle priznaku radku - pro prikazy, ktere entity nehydratuji.
+	 */
+	public function getStorage(bool $isPrivate, bool $isArchived): Storage
+	{
+		return self::resolve($this->dataStorage, $this->privateDataStorage, $this->archiveStorage, $this->privateArchiveStorage, $isPrivate, $isArchived);
+	}
+
+	/**
+	 * Pravidlo vyberu uloziste nad libovolnou ctverici (datove, privatni datove, archiv,
+	 * privatni archiv) - stejne pro soucasnou konfiguraci i pro tu, ze ktere se migruje.
+	 */
+	public static function resolve(Storage $data, ?Storage $privateData, ?Storage $archive, ?Storage $privateArchive, bool $isPrivate, bool $isArchived): Storage
+	{
+		if ($isArchived) {
+			$archive = $isPrivate && $privateArchive !== null ? $privateArchive : $archive;
+			if ($archive !== null) {
+				return $archive;
+			}
 		}
 
-		return $this->getDataStorageFor($file);
+		return $isPrivate ? ($privateData ?? $data) : $data;
 	}
 
 	public function ignoreMissingFiles(bool $ignoreMissingFiles): static

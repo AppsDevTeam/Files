@@ -8,6 +8,7 @@ use ADT\DoctrineComponents\EntityManager as AdtEntityManager;
 use ADT\Files\Listeners\FileListener;
 use ADT\Files\Storage\Storage;
 use Doctrine\Common\EventManager;
+use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\EntityManagerInterface;
@@ -31,15 +32,17 @@ final class EntityManagerFactory
 	 * @param string|Storage|null $privateArchiveDir archive of private files, null = $archiveDir
 	 * @param string|null $dataUrl public URL of the data directory, null = files have no URL
 	 * @param string|Storage|null $privateDataDir storage of private files, null = $dataDir
+	 * @param Connection|null $connection database of another entity manager to share (its schema is kept), null = a fresh in-memory one
 	 */
-	public static function create(string|Storage $dataDir, bool $adt = true, bool $nullableMimeType = false, string|Storage|null $archiveDir = null, string|Storage|null $privateArchiveDir = null, ?string $dataUrl = null, string|Storage|null $privateDataDir = null): EntityManagerInterface
+	public static function create(string|Storage $dataDir, bool $adt = true, bool $nullableMimeType = false, string|Storage|null $archiveDir = null, string|Storage|null $privateArchiveDir = null, ?string $dataUrl = null, string|Storage|null $privateDataDir = null, ?Connection $connection = null): EntityManagerInterface
 	{
 		// Gedmo translations are there for the content images tests
 		$config = ORMSetup::createAttributeMetadataConfiguration([__DIR__ . '/Entity', dirname((string) new \ReflectionClass(Translation::class)->getFileName())], true);
 		$config->enableNativeLazyObjects(true);
 
 		$eventManager = new EventManager();
-		$connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true], $config);
+		$shared = $connection !== null;
+		$connection ??= DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true], $config);
 		$plainEm = new EntityManager($connection, $config, $eventManager);
 
 		$em = $adt ? new AdtEntityManager($plainEm) : $plainEm;
@@ -56,7 +59,9 @@ final class EntityManagerFactory
 			}
 		}
 
-		new SchemaTool($plainEm)->createSchema($allMetadata);
+		if (!$shared) {
+			new SchemaTool($plainEm)->createSchema($allMetadata);
+		}
 
 		return $em;
 	}

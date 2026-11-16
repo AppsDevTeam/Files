@@ -66,6 +66,30 @@ class Helpers
 		return $path;
 	}
 
+	/**
+	 * Stáhne soubor z úložiště do nového dočasného souboru (Storage::put() chce lokální cestu).
+	 * @throws \Exception
+	 */
+	public static function downloadToTemporaryFile(\ADT\Files\Storage\Storage $storage, string $name): string
+	{
+		$tmp = static::createTemporaryFile('adt-files-download-');
+
+		try {
+			$in = $storage->read($name);
+			$out = fopen($tmp, 'wb');
+			$copied = $out !== false && stream_copy_to_stream($in, $out) !== false && fclose($out);
+			fclose($in);
+			if (!$copied) {
+				throw new \Exception('Downloading ' . $storage->getPath($name) . ' failed.');
+			}
+		} catch (\Exception $e) {
+			@unlink($tmp);
+			throw $e;
+		}
+
+		return $tmp;
+	}
+
 	/* Přípona pro obsah, jehož typ neumíme pojmenovat */
 	const string DEFAULT_EXTENSION = 'bin';
 

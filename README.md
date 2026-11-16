@@ -231,6 +231,36 @@ What changes with a bucket:
 The tests against a real S3 need one: `eval "$(tests/s3/garage.sh up)"` starts a single node
 Garage in Docker and exports what the tests read, without it they are skipped.
 
+### Moving the files you already have
+
+Switching the listener to a bucket does nothing to the files saved before - they sit in the
+directory and the rows now point into the bucket, where they are not. `files:migrate-storage`
+carries them over. It takes the *former* storages the way the listener takes its own (data,
+private, archive, private archive) and the targets from the listener as it is configured now:
+
+```
+services:
+    - ADT\Files\Console\MigrateStorageCommand(from: %dataDir%/files, privateFrom: %dataPrivateDir%/files, archiveFrom: '/mnt/nfs/share/<project>/files')
+```
+
+```
+$ php bin/console files:migrate-storage                  # counts what it would copy
+$ php bin/console files:migrate-storage --exec           # copies, the sources stay
+$ php bin/console files:migrate-storage --exec --delete  # copies, then deletes the source of every file that is in the target
+```
+
+It goes by rows, not by the directory (a file without a row is an orphan, see above), checks each
+copy against the row - the hash from the database is what `put()` verifies the copy with, so a
+file that no longer matches its row is reported instead of copied - and can be run again any
+time: a file already in the target with the right size is skipped. Problems (a missing file,
+a failed copy, a row without a file) are listed with their ids at the end and the run goes on.
+Rows pointing into an archive need `archiveFrom`, without it they are reported.
+
+Switch the configuration and run the command right after, or the other way round - the command
+knows the target from its own arguments, so it runs with the old configuration as well. Between
+the switch and the end of the run the old files are not found. `--delete` is for when the new
+storage has proven itself; until then the directory is the way back.
+
 Archiving
 ---------
 

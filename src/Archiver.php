@@ -108,7 +108,7 @@ class Archiver
 
 		// put() chce lokalni soubor: z adresare se bere primo, z S3 se stahne do docasneho
 		$downloaded = !$data instanceof LocalStorage;
-		$source = $downloaded ? $this->download($data, $name) : $data->getPath($name);
+		$source = $downloaded ? Helpers::downloadToTemporaryFile($data, $name) : $data->getPath($name);
 
 		try {
 			$this->verify($source, $file);
@@ -143,30 +143,6 @@ class Archiver
 		// low level update - entita v unit of work musi videt novy stav (a FileListener ji
 		// v postLoad nastavi archiv)
 		$this->em->refresh($file);
-	}
-
-	/**
-	 * Stahne soubor z uloziste do docasneho souboru.
-	 * @throws Exception
-	 */
-	protected function download(Storage $storage, string $name): string
-	{
-		$tmp = Helpers::createTemporaryFile('adt-files-archive-');
-
-		try {
-			$in = $storage->read($name);
-			$out = fopen($tmp, 'wb');
-			$copied = $out !== false && stream_copy_to_stream($in, $out) !== false && fclose($out);
-			fclose($in);
-			if (!$copied) {
-				throw new Exception('Downloading ' . $storage->getPath($name) . ' failed.');
-			}
-		} catch (Exception $e) {
-			@unlink($tmp);
-			throw $e;
-		}
-
-		return $tmp;
 	}
 
 	/**
