@@ -7,6 +7,8 @@ namespace ADT\Files\Listeners;
 use ADT\DoctrineComponents\TransactionCallbacksInterface;
 use ADT\Files\Entities\File;
 use ADT\Files\Helpers;
+use ADT\Files\Storage\LocalStorage;
+use ADT\Files\Storage\Storage;
 use Doctrine\Common\EventSubscriber;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Event\PostLoadEventArgs;
@@ -16,14 +18,14 @@ use Doctrine\ORM\Events;
 use Doctrine\ORM\Exception\ORMException;
 use Exception;
 use Gedmo\SoftDeleteable\SoftDeleteable;
+use Throwable;
 
 class FileListener implements EventSubscriber
 {
-	protected string $dataDir;
-	protected ?string $dataUrl = null;
-	protected ?string $privateDataDir = null;
-	protected ?string $archiveDir = null;
-	protected ?string $privateArchiveDir = null;
+	protected Storage $dataStorage;
+	protected ?Storage $privateDataStorage = null;
+	protected ?Storage $archiveStorage = null;
+	protected ?Storage $privateArchiveStorage = null;
 	protected EntityManagerInterface $em;
 	/** @var File[] */
 	protected array $filesToDelete = [];
@@ -32,45 +34,109 @@ class FileListener implements EventSubscriber
 	protected bool $ignoreMissingFiles = false;
 
 	/**
+	 * Kazde uloziste je bud Storage (S3Storage, LocalStorage), nebo cesta k adresari, ktera
+	 * se zabali do LocalStorage - puvodni konfigurace projektu tak funguje beze zmeny.
+	 * $dataUrl plati jen pro adresare: Storage si svou URL nese sama.
 	 * @throws Exception
 	 */
-	public function __construct(string $dataDir, ?string $dataUrl = null, ?string $privateDataDir = null, ?EntityManagerInterface $em = null, ?string $archiveDir = null, ?string $privateArchiveDir = null)
+	public function __construct(string|Storage $dataDir, ?string $dataUrl = null, string|Storage|null $privateDataDir = null, ?EntityManagerInterface $em = null, string|Storage|null $archiveDir = null, string|Storage|null $privateArchiveDir = null)
 	{
 		if (!$em) {
 			throw new Exception("Class 'Doctrine\ORM\EntityManagerInterface' required by \$em in FileListener::__construct() not found.");
 		}
 		$this->em = $em;
-		$this->dataDir = $dataDir;
-		$this->dataUrl = $dataUrl;
-		$this->privateDataDir = $privateDataDir;
-		$this->archiveDir = $archiveDir;
-		$this->privateArchiveDir = $privateArchiveDir;
+		if ($dataUrl !== null && $dataDir instanceof Storage) {
+			throw new Exception('$dataUrl applies to a directory only, a Storage carries its own URL - pass it to the storage.');
+		}
+		$this->dataStorage = self::storage($dataDir, $dataUrl);
+		// privatni adresar dostaval stejnou URL odjakziva - zustava, at se projektum nic nemeni
+		$this->privateDataStorage = self::storage($privateDataDir, $dataUrl);
+		$this->archiveStorage = self::storage($archiveDir);
+		$this->privateArchiveStorage = self::storage($privateArchiveDir);
 	}
 
-	public function getArchiveDir(): ?string
+	private static function storage(string|Storage|null $storage, ?string $url = null): ?Storage
 	{
-		return $this->archiveDir;
-	}
-
-	/**
-	 * Archivni adresar konkretniho souboru - soukrome soubory v $privateArchiveDir, pokud je
-	 * nastaveny, aby archiv mohl kopirovat strukturu datovych adresaru.
-	 */
-	public function getArchiveDirFor(File $file): ?string
-	{
-		if ($file->getIsPrivate() && $this->privateArchiveDir !== null) {
-			return $this->privateArchiveDir;
+		if ($storage === null || $storage instanceof Storage) {
+			return $storage;
 		}
 
-		return $this->archiveDir;
+		return new LocalStorage($storage, $url);
+	}
+
+	public function getDataStorage(): Storage
+	{
+		return $this->dataStorage;
+	}
+
+	public function getPrivateDataStorage(): ?Storage
+	{
+		return $this->privateDataStorage;
+	}
+
+	public function getArchiveStorage(): ?Storage
+	{
+		return $this->archiveStorage;
+	}
+
+	public function getPrivateArchiveStorage(): ?Storage
+	{
+		return $this->privateArchiveStorage;
 	}
 
 	/**
-	 * Datovy adresar souboru bez ohledu na archivaci - kam patri, kdyz archivovany neni.
+	 * Archiv konkretniho souboru - soukrome soubory v $privateArchiveDir, pokud je nastaveny,
+	 * aby archiv mohl kopirovat strukturu datovych ulozist.
 	 */
-	public function getLocalDataDir(File $file): ?string
+	public function getArchiveStorageFor(File $file): ?Storage
 	{
-		return $file->getIsPrivate() ? $this->privateDataDir : $this->dataDir;
+		if ($file->getIsPrivate() && $this->privateArchiveStorage !== null) {
+			return $this->privateArchiveStorage;
+		}
+
+		return $this->archiveStorage;
+	}
+
+	/**
+	 * Datove uloziste souboru bez ohledu na archivaci - kam patri, kdyz archivovany neni.
+	 */
+	public function getDataStorageFor(File $file): Storage
+	{
+		return $file->getIsPrivate() ? ($this->privateDataStorage ?? $this->dataStorage) : $this->dataStorage;
+	}
+
+	/**
+	 * Uloziste, ve kterem soubor prave lezi. Archivovany soubor lezi v archivu bez ohledu
+	 * na to, jestli je soukromy. Bez archivu v konfiguraci zustane datove uloziste a soubor
+	 * se proste nenajde: archiv musi byt nastaveny v kazdem procesu, ktery ho cte.
+	 */
+	public function getStorageFor(File $file): Storage
+	{
+		return $this->getStorage($file->getIsPrivate(), $file->getIsArchived());
+	}
+
+	/**
+	 * Totez podle priznaku radku - pro prikazy, ktere entity nehydratuji.
+	 */
+	public function getStorage(bool $isPrivate, bool $isArchived): Storage
+	{
+		return self::resolve($this->dataStorage, $this->privateDataStorage, $this->archiveStorage, $this->privateArchiveStorage, $isPrivate, $isArchived);
+	}
+
+	/**
+	 * Pravidlo vyberu uloziste nad libovolnou ctverici (datove, privatni datove, archiv,
+	 * privatni archiv) - stejne pro soucasnou konfiguraci i pro tu, ze ktere se migruje.
+	 */
+	public static function resolve(Storage $data, ?Storage $privateData, ?Storage $archive, ?Storage $privateArchive, bool $isPrivate, bool $isArchived): Storage
+	{
+		if ($isArchived) {
+			$archive = $isPrivate && $privateArchive !== null ? $privateArchive : $archive;
+			if ($archive !== null) {
+				return $archive;
+			}
+		}
+
+		return $isPrivate ? ($privateData ?? $data) : $data;
 	}
 
 	public function ignoreMissingFiles(bool $ignoreMissingFiles): static
@@ -163,7 +229,7 @@ class FileListener implements EventSubscriber
 		}
 
 		// Bez TransactionCallbacksInterface nemame jak se dozvedet o commitu, takze soubor
-		// radsi nechame lezet. Nepouzity soubor na disku se da uklidit, chybejici uz ne.
+		// radsi nechame lezet. Nepouzity soubor v ulozisti se da uklidit, chybejici uz ne.
 	}
 
 	/**
@@ -172,7 +238,12 @@ class FileListener implements EventSubscriber
 	protected function deleteFiles(array $entities): void
 	{
 		foreach ($entities as $entity) {
-			@unlink($entity->getPath());
+			// radek uz je pryc - soubor, ktery nejde smazat (archiv zrovna nedostupny), zustane
+			// jako sirotek, to je lepsi nez vyjimka po commitu
+			try {
+				$this->getStorageFor($entity)->delete($entity->getFilename());
+			} catch (Throwable) {
+			}
 
 			if ($this->onAfterDelete) {
 				($this->onAfterDelete)($this, $entity);
@@ -181,6 +252,9 @@ class FileListener implements EventSubscriber
 	}
 
 	/**
+	 * Obsah entity (docasny soubor, stream nebo retezec) se nejdriv dostane do lokalniho
+	 * souboru, z nej se zjisti mime type, velikost a hash, a teprve pak jde do uloziste -
+	 * to muze byt S3, kde by se tohle zjistovalo mnohem hur.
 	 * @throws Exception
 	 * @throws ORMException
 	 */
@@ -190,51 +264,55 @@ class FileListener implements EventSubscriber
 			throw new Exception('Entity does not have a temporary file or content set.');
 		}
 
-		$filename = Helpers::getName($file->getOriginalName(), $file->getId());
+		$filename = $this->resolveFilename($file);
 
 		$file->setFilename($filename);
 
-		$dataDir = $file->getIsPrivate() ? $this->privateDataDir : $this->dataDir;
+		$storage = $this->getDataStorageFor($file);
+		$file->setStorage($storage);
 
-		// we don't use file_exists because it's not an atomic operation
-		// that's why we rather use @
-		if (@mkdir(dirname($dataDir  . '/' . $filename), 0770, true)) {
-			// we must use chmod because umask is applied to the permissions in mkdir command
-			// default umask is mostly 0022, which executes 0770 & ~0022 and results in 0750
-			chmod(dirname($dataDir  . '/' . $filename), 0770);
-		}
-		if ($file->getTemporaryFile()) {
-			if (!rename($file->getTemporaryFile(), $dataDir  . '/' . $filename)) {
+		// docasny soubor od aplikace se do uloziste presouva (po ulozeni je pryc, jako driv
+		// pres rename); obsah a stream jdou pres vlastni docasny soubor
+		$ownTemporaryFile = !$file->getTemporaryFile();
+		if (!$ownTemporaryFile) {
+			$source = $file->getTemporaryFile();
+		} else {
+			$source = Helpers::createTemporaryFile();
+			$written = $file->getStream()
+				? @copy($file->getStream(), $source)
+				: @file_put_contents($source, $file->getTemporaryContent()) !== false;
+			if (!$written) {
+				@unlink($source);
 				throw new Exception('File was not uploaded.');
 			}
 		}
-		elseif ($file->getStream()) {
-			if (!copy($file->getStream(), $dataDir  . '/' . $filename)) {
-				throw new Exception('File was not uploaded.');
-			}
-		}
-		else {
-			if (file_put_contents($dataDir  . '/' . $filename, $file->getTemporaryContent()) === false) {
-				throw new Exception('File was not uploaded.');
-			}
-		}
-		chmod($dataDir  . '/' . $filename, 0660);
 
-		$filePath = $dataDir . '/' . $file->getFilename();
+		try {
+			// mime_content_type vrací false jen když soubor nejde přečíst - pro nerozpoznatelný
+			// obsah vrátí application/octet-stream samo. Zavináč kvůli warningu v tom jednom případě.
+			$mimeType = @mime_content_type($source) ?: Helpers::DEFAULT_MIME_TYPE;
+			$size = filesize($source);
+			// md5_file reads the file in chunks, md5($file->getContents()) would load
+			// the whole file into memory and exhaust the memory limit on large files
+			$hash = md5_file($source) ?: null;
 
-		// mime_content_type vrací false jen když soubor nejde přečíst - pro nerozpoznatelný
-		// obsah vrátí application/octet-stream samo. Zavináč kvůli warningu v tom jednom případě.
-		$mimeType = @mime_content_type($filePath) ?: Helpers::DEFAULT_MIME_TYPE;
+			$storage->put($filename, $source, $mimeType, $hash);
+		} catch (Throwable $e) {
+			if ($ownTemporaryFile) {
+				@unlink($source);
+			}
+			throw $e;
+		}
+		@unlink($source);
+
 		$file->setMimeType($mimeType);
 
 		$this->em->createQuery('UPDATE ' . get_class($file) . ' e SET e.filename = :filename, e.size = :size, e.hash = :hash, e.mimeType = :mimeType WHERE e.id = :id')
 			->setParameters([
 				'id' => $file->getId(),
 				'filename' => $file->getFilename(),
-				'size' => filesize($filePath),
-				// md5_file reads the file in chunks, md5($file->getContents()) would load
-				// the whole file into memory and exhaust the memory limit on large files
-				'hash' => md5_file($filePath) ?: null,
+				'size' => $size,
+				'hash' => $hash,
 				'mimeType' => $mimeType,
 			])
 			->execute();
@@ -246,19 +324,18 @@ class FileListener implements EventSubscriber
 		}
 	}
 
+	/**
+	 * Jmeno, pod kterym se soubor ulozi (sloupec filename). Projekt s vlastnim schematem nazvu
+	 * prepise tohle, ne cele saveFile().
+	 */
+	protected function resolveFilename(File $file): string
+	{
+		return Helpers::getName($file->getOriginalName(), $file->getId());
+	}
+
 	protected function setupEntity(File $file): void
 	{
-		// archivovany soubor lezi v archivu bez ohledu na to, jestli je soukromy - pod
-		// document rootem neni ani jeden. Bez $archiveDir zustane datovy adresar a soubor
-		// se proste nenajde: archiv musi byt nastaveny v kazdem procesu, ktery ho cte.
-		if ($file->getIsArchived() && $this->archiveDir !== null) {
-			$file->setBaseDirectoryPath($this->getArchiveDirFor($file));
-		} else {
-			$file->setBaseDirectoryPath($this->getLocalDataDir($file));
-		}
-		if ($this->dataUrl) {
-			$file->setBaseDirectoryUrl($this->dataUrl);
-		}
+		$file->setStorage($this->getStorageFor($file));
 		if ($this->ignoreMissingFiles) {
 			$file->ignoreMissingFile();
 		}

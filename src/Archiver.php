@@ -9,20 +9,22 @@ use ADT\BackgroundQueue\Exception\PermanentErrorException;
 use ADT\DoctrineComponents\TransactionCallbacksInterface;
 use ADT\Files\Entities\File;
 use ADT\Files\Listeners\FileListener;
+use ADT\Files\Storage\LocalStorage;
+use ADT\Files\Storage\Storage;
 use Doctrine\ORM\EntityManagerInterface;
 use Exception;
 use Throwable;
 
 /**
- * Presun souboru z datoveho adresare do archivu ($archiveDir ve FileListeneru, typicky
- * NFS mount). archive() jen zalozi background job, samotny presun dela processArchive().
+ * Presun souboru z datoveho uloziste do archivu ($archiveDir ve FileListeneru - adresar na
+ * NFS mountu, nebo S3 bucket). archive() jen zalozi background job, samotny presun dela
+ * processArchive().
  *
- * Archiv muze byt chvili nedostupny a soft NFS mount pak vraci chyby misto zaseknuti -
- * ale zapis, ktery se do souboru dostal jen do cache klienta, se pri vypadku ztrati
- * a write()/close() o tom nemusi vedet. Proto: kopie do docasneho souboru, fsync()
- * s kontrolou, overeni velikosti a hashe, teprve pak rename na finalni jmeno, priznak
- * v DB a smazani lokalni kopie (az po commitu). Jakakoli chyba = vyjimka = background
- * queue job zopakuje pozdeji; processArchive() je proto idempotentni.
+ * Archiv muze byt chvili nedostupny (soft NFS mount vraci chyby misto zaseknuti, S3 odmitne
+ * spojeni). Proto: zdroj se overi proti zaznamu v DB, Storage::put() rucí za to, ze kopie je
+ * cela a shodna (fsync + hash na disku, Content-MD5 v S3), teprve pak priznak v DB a smazani
+ * puvodni kopie (az po commitu). Jakakoli chyba = vyjimka = background queue job zopakuje
+ * pozdeji; processArchive() je proto idempotentni.
  *
  * Registrace queue callbacku v projektu:
  *   backgroundQueue: callbacks: archiveFile: [@ADT\Files\Archiver, processArchive]
@@ -45,8 +47,8 @@ class Archiver
 	 */
 	public function archive(File $file): void
 	{
-		if ($this->fileListener->getArchiveDir() === null) {
-			throw new Exception('Archive directory is not configured, see FileListener $archiveDir.');
+		if ($this->fileListener->getArchiveStorage() === null) {
+			throw new Exception('Archive is not configured, see FileListener $archiveDir.');
 		}
 
 		if ($file->getIsArchived()) {
@@ -74,8 +76,8 @@ class Archiver
 	 */
 	public function processArchive(string $entityClass, int $fileId): void
 	{
-		if ($this->fileListener->getArchiveDir() === null) {
-			throw new PermanentErrorException('Archive directory is not configured, see FileListener $archiveDir.');
+		if ($this->fileListener->getArchiveStorage() === null) {
+			throw new PermanentErrorException('Archive is not configured, see FileListener $archiveDir.');
 		}
 
 		$file = $this->em->find($entityClass, $fileId);
@@ -89,127 +91,98 @@ class Archiver
 			throw new PermanentErrorException($entityClass . ' does not implement ' . File::class . '.');
 		}
 
-		$target = $this->fileListener->getArchiveDirFor($file) . '/' . $file->getFilename();
+		$name = $file->getFilename();
+		$data = $this->fileListener->getDataStorageFor($file);
+		$archive = $this->fileListener->getArchiveStorageFor($file);
 
 		if ($file->getIsArchived()) {
-			// Opakovany beh po padu mezi zapisem do DB a smazanim lokalni kopie - entita uz
-			// ukazuje do archivu, lokalni kopii dohledame v datovem adresari.
-			$this->deleteLocalCopy($file, $target);
+			// Opakovany beh po padu mezi zapisem do DB a smazanim puvodni kopie - entita uz
+			// ukazuje do archivu, puvodni kopii dohledame v datovem ulozisti.
+			$this->deleteOriginal($file, $data, $archive);
 			return;
 		}
 
-		$source = $file->getPath();
-		if (!is_file($source)) {
-			throw new PermanentErrorException('File ' . $source . ' to archive does not exist.');
+		if ($data->getSize($name) === null) {
+			throw new PermanentErrorException('File ' . $data->getPath($name) . ' to archive does not exist.');
 		}
 
-		$this->copyVerified($source, $target, $file);
+		// put() chce lokalni soubor: z adresare se bere primo, z S3 se stahne do docasneho
+		$downloaded = !$data instanceof LocalStorage;
+		$source = $downloaded ? Helpers::downloadToTemporaryFile($data, $name) : $data->getPath($name);
+
+		try {
+			$this->verify($source, $file);
+			$archive->put($name, $source, $file->getMimeType(), $file->getHash());
+		} finally {
+			if ($downloaded) {
+				@unlink($source);
+			}
+		}
 
 		$this->em->createQuery('UPDATE ' . $entityClass . ' e SET e.isArchived = true WHERE e.id = :id')
 			->setParameter('id', $fileId)
 			->execute();
 
-		// stejne jako mazani ve FileListeneru: lokalni kopie jde pryc az po commitu, rollback
-		// by jinak vratil radek ukazujici do datoveho adresare, kde uz nic neni
+		// stejne jako mazani ve FileListeneru: puvodni kopie jde pryc az po commitu, rollback
+		// by jinak vratil radek ukazujici do datoveho uloziste, kde uz nic neni. Kdyz se smazat
+		// nepovede (uloziste zrovna nedostupne), zustane lezet - radek uz rika "archivovano",
+		// vyjimka po commitu by nikomu nepomohla; uklidi ji files:delete-orphans --archived
+		// nebo dalsi beh tohoto jobu.
+		$deleteOriginal = function () use ($data, $name): void {
+			try {
+				$data->delete($name);
+			} catch (Throwable) {
+			}
+		};
 		if ($this->em instanceof TransactionCallbacksInterface) {
-			$this->em->afterCommit(fn () => @unlink($source));
+			$this->em->afterCommit($deleteOriginal);
 		} elseif (!$this->em->getConnection()->isTransactionActive()) {
-			@unlink($source);
+			$deleteOriginal();
 		}
-		// Jinak lokalni kopie zustane lezet - nadbytecny soubor se da uklidit, chybejici ne.
 
 		// low level update - entita v unit of work musi videt novy stav (a FileListener ji
-		// v postLoad nastavi cestu do archivu)
+		// v postLoad nastavi archiv)
 		$this->em->refresh($file);
 	}
 
 	/**
-	 * Zkopiruje soubor do archivu tak, aby na finalni ceste nikdy nebyl nedopsany soubor:
-	 * docasny soubor, fsync s kontrolou, overeni, rename.
+	 * Zdroj proti zaznamu v DB - velikost a hash. Starsi radky hash nemusi mit, pak jen
+	 * velikost. Archivovat kopii, ktera uz neodpovida tomu, co o ni vime, nema smysl.
 	 * @throws Exception
 	 */
-	protected function copyVerified(string $source, string $target, File $file): void
+	protected function verify(string $source, File $file): void
 	{
-		// we don't use file_exists because it's not an atomic operation, see FileListener::saveFile()
-		if (@mkdir(dirname($target), 0770, true)) {
-			chmod(dirname($target), 0770);
+		clearstatcache(true, $source);
+
+		$size = @filesize($source);
+		if ($size === false || $size !== $file->getSize()) {
+			throw new Exception('Size of ' . $source . ' does not match the database.');
 		}
 
-		$tmp = $target . '.tmp-' . bin2hex(random_bytes(4));
-
-		try {
-			$in = @fopen($source, 'rb');
-			if ($in === false) {
-				throw new Exception('Cannot open ' . $source . ' for reading.');
-			}
-
-			$out = @fopen($tmp, 'xb');
-			if ($out === false) {
-				fclose($in);
-				throw new Exception('Cannot create ' . $tmp . '.');
-			}
-
-			$copied = stream_copy_to_stream($in, $out);
-			fclose($in);
-
-			// Na soft NFS mountu se chyba zapisu muze ukazat az pri fsync/close - kontrola
-			// kazdeho kroku je to jedine, co dava jistotu, ze data jsou na serveru.
-			if ($copied === false || !fflush($out) || !fsync($out)) {
-				fclose($out);
-				throw new Exception('Writing ' . $tmp . ' failed.');
-			}
-			if (!fclose($out)) {
-				throw new Exception('Closing ' . $tmp . ' failed.');
-			}
-
-			$this->verify($tmp, $source, $file);
-
-			if (!@rename($tmp, $target)) {
-				throw new Exception('Cannot rename ' . $tmp . ' to ' . $target . '.');
-			}
-			@chmod($target, 0660);
-		} catch (Throwable $e) {
-			@unlink($tmp);
-			throw $e;
+		if ($file->getHash() !== null && @md5_file($source) !== $file->getHash()) {
+			throw new Exception('Hash of ' . $source . ' does not match the database.');
 		}
 	}
 
 	/**
-	 * Velikost a hash kopie proti zaznamu v DB. Starsi radky hash nemusi mit, pak se
-	 * porovnava se zdrojem.
+	 * Smaze puvodni kopii uz archivovaneho souboru - jen kdyz archivni kopie opravdu existuje
+	 * a je stejne velka.
 	 * @throws Exception
 	 */
-	protected function verify(string $copy, string $source, File $file): void
+	protected function deleteOriginal(File $file, Storage $data, Storage $archive): void
 	{
-		clearstatcache(true, $copy);
+		$name = $file->getFilename();
+		$size = $data->getSize($name);
 
-		$size = @filesize($copy);
-		$expectedSize = @filesize($source);
-		if ($size === false || $size !== $expectedSize) {
-			throw new Exception('Size of ' . $copy . ' does not match the original.');
-		}
-
-		$hash = @md5_file($copy);
-		$expectedHash = $file->getHash() ?? @md5_file($source);
-		if ($hash === false || $hash !== $expectedHash) {
-			throw new Exception('Hash of ' . $copy . ' does not match the original.');
-		}
-	}
-
-	/**
-	 * Smaze lokalni kopii uz archivovaneho souboru - jen kdyz archivni kopie opravdu sedi.
-	 * @throws Exception
-	 */
-	protected function deleteLocalCopy(File $file, string $target): void
-	{
-		$local = $this->fileListener->getLocalDataDir($file) . '/' . $file->getFilename();
-
-		if (!is_file($local)) {
+		if ($size === null) {
 			return;
 		}
 
-		$this->verify($target, $local, $file);
-		@unlink($local);
-	}
+		$archived = $archive->getSize($name);
+		if ($archived === null || $archived !== $size) {
+			throw new Exception('Archived copy of ' . $archive->getPath($name) . ' is missing or does not match, keeping the original.');
+		}
 
+		$data->delete($name);
+	}
 }
