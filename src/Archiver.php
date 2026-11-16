@@ -13,6 +13,7 @@ use ADT\Files\Storage\LocalStorage;
 use ADT\Files\Storage\Storage;
 use Doctrine\ORM\EntityManagerInterface;
 use Exception;
+use Throwable;
 
 /**
  * Presun souboru z datoveho uloziste do archivu ($archiveDir ve FileListeneru - adresar na
@@ -111,7 +112,7 @@ class Archiver
 
 		try {
 			$this->verify($source, $file);
-			$archive->put($name, $source, $file->getMimeType());
+			$archive->put($name, $source, $file->getMimeType(), $file->getHash());
 		} finally {
 			if ($downloaded) {
 				@unlink($source);
@@ -123,13 +124,21 @@ class Archiver
 			->execute();
 
 		// stejne jako mazani ve FileListeneru: puvodni kopie jde pryc az po commitu, rollback
-		// by jinak vratil radek ukazujici do datoveho uloziste, kde uz nic neni
+		// by jinak vratil radek ukazujici do datoveho uloziste, kde uz nic neni. Kdyz se smazat
+		// nepovede (uloziste zrovna nedostupne), zustane lezet - radek uz rika "archivovano",
+		// vyjimka po commitu by nikomu nepomohla; uklidi ji files:delete-orphans --archived
+		// nebo dalsi beh tohoto jobu.
+		$deleteOriginal = function () use ($data, $name): void {
+			try {
+				$data->delete($name);
+			} catch (Throwable) {
+			}
+		};
 		if ($this->em instanceof TransactionCallbacksInterface) {
-			$this->em->afterCommit(fn () => $data->delete($name));
+			$this->em->afterCommit($deleteOriginal);
 		} elseif (!$this->em->getConnection()->isTransactionActive()) {
-			$data->delete($name);
+			$deleteOriginal();
 		}
-		// Jinak puvodni kopie zustane lezet - nadbytecny soubor se da uklidit, chybejici ne.
 
 		// low level update - entita v unit of work musi videt novy stav (a FileListener ji
 		// v postLoad nastavi archiv)
@@ -142,10 +151,7 @@ class Archiver
 	 */
 	protected function download(Storage $storage, string $name): string
 	{
-		$tmp = tempnam(sys_get_temp_dir(), 'adt-files-archive-');
-		if ($tmp === false) {
-			throw new Exception('Cannot create a temporary file.');
-		}
+		$tmp = Helpers::createTemporaryFile('adt-files-archive-');
 
 		try {
 			$in = $storage->read($name);

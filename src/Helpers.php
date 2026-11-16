@@ -44,6 +44,28 @@ class Helpers
 		'phtml', 'pht', 'phps', 'phar', 'phpt',
 	];
 
+	/**
+	 * Adresář pro dočasné soubory knihovny (obsah a stream entity před uložením, soubor stažený
+	 * z bucketu před archivací). Null = sys_get_temp_dir(). Nastavit tam, kde je /tmp malý nebo
+	 * tmpfs a soubory velké.
+	 */
+	public static ?string $temporaryDirectory = null;
+
+	/**
+	 * Nový prázdný dočasný soubor v $temporaryDirectory.
+	 * @throws \Exception
+	 */
+	public static function createTemporaryFile(string $prefix = 'adt-files-'): string
+	{
+		$path = @tempnam(static::$temporaryDirectory ?? sys_get_temp_dir(), $prefix);
+
+		if ($path === false) {
+			throw new \Exception('Cannot create a temporary file in ' . (static::$temporaryDirectory ?? sys_get_temp_dir()) . '.');
+		}
+
+		return $path;
+	}
+
 	/* Přípona pro obsah, jehož typ neumíme pojmenovat */
 	const string DEFAULT_EXTENSION = 'bin';
 

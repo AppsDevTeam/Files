@@ -20,10 +20,11 @@ interface Storage
 {
 	/**
 	 * Ulozi lokalni soubor $localPath pod jmenem $name. Zdroj zustava, presun si resi volajici.
-	 * $contentType si uloziste muze zapamatovat (S3 ho vraci v Content-Type), nemusi.
+	 * $contentType si uloziste muze zapamatovat (S3 ho vraci v Content-Type), nemusi. $md5 je
+	 * hash zdroje (hex), pokud ho volajici uz zna - usetri jeden pruchod souborem.
 	 * @throws Exception kdyz se soubor nepodarilo ulozit cely a overeny
 	 */
-	public function put(string $name, string $localPath, ?string $contentType = null): void;
+	public function put(string $name, string $localPath, ?string $contentType = null, ?string $md5 = null): void;
 
 	/**
 	 * Otevre soubor ke cteni.

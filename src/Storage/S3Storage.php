@@ -7,6 +7,7 @@ namespace ADT\Files\Storage;
 use Aws\S3\Exception\S3Exception;
 use Aws\S3\S3Client;
 use Aws\S3\S3ClientInterface;
+use Aws\S3\MultipartUploader;
 use Aws\S3\StreamWrapper;
 use Exception;
 use GuzzleHttp\Psr7\StreamWrapper as Psr7StreamWrapper;
@@ -28,8 +29,17 @@ use GuzzleHttp\Psr7\StreamWrapper as Psr7StreamWrapper;
  */
 class S3Storage implements Storage
 {
-	/** @var array<string, string> protokol wrapperu => server a klic klienta, ktery ho obsluhuje */
+	/**
+	 * Od jake velikosti jde upload po castech (S3 ma pro jeden PUT limit 5 GB). Po castech
+	 * neni Content-MD5 celku, overuje se jen velikost; cast ma min. 5 MB.
+	 */
+	public static int $multipartThreshold = 1024 * 1024 * 1024;
+
+	/** @var array<string, S3ClientInterface> protokol wrapperu => klient, ktery ho obsluhuje */
 	private static array $registered = [];
+
+	/** @var array<string, S3Client> klienti z create() podle serveru a klice - dve uloziste se stejnymi udaji sdili klienta (a wrapper) */
+	private static array $clients = [];
 
 	protected string $prefix;
 
@@ -48,20 +58,14 @@ class S3Storage implements Storage
 		$this->prefix = trim((string) $prefix, '/');
 		$this->url = $url !== null ? rtrim($url, '/') : null;
 
-		// tentyz server pod jednim protokolem - stejny klient, nebo jiny se stejnym serverem
-		// a klicem (dve uloziste z create() se stejnymi udaji)
-		if (isset(self::$registered[$protocol]) && self::$registered[$protocol] !== self::identity($client)) {
-			throw new Exception("Stream wrapper '{$protocol}://' already belongs to another S3 server, give this storage its own \$protocol.");
+		// jeden protokol = jeden klient (create() se stejnymi udaji vraci tehoz)
+		if (isset(self::$registered[$protocol]) && self::$registered[$protocol] !== $client) {
+			throw new Exception("Stream wrapper '{$protocol}://' already belongs to another S3 client, give this storage its own \$protocol.");
 		}
 		if (!isset(self::$registered[$protocol])) {
 			StreamWrapper::register($client, $protocol);
-			self::$registered[$protocol] = self::identity($client);
+			self::$registered[$protocol] = $client;
 		}
-	}
-
-	private static function identity(S3ClientInterface $client): string
-	{
-		return $client->getEndpoint() . ' ' . $client->getRegion() . ' ' . $client->getCredentials()->wait()->getAccessKeyId();
 	}
 
 	/**
@@ -70,7 +74,7 @@ class S3Storage implements Storage
 	 */
 	public static function create(string $endpoint, string $key, string $secret, string $bucket, string $region = 'garage', ?string $prefix = null, ?string $url = null, string $protocol = 's3'): static
 	{
-		$client = new S3Client([
+		$client = self::$clients[$endpoint . ' ' . $region . ' ' . $key] ??= new S3Client([
 			'version' => 'latest',
 			'region' => $region,
 			'endpoint' => $endpoint,
@@ -91,32 +95,48 @@ class S3Storage implements Storage
 		return $this->bucket;
 	}
 
-	public function put(string $name, string $localPath, ?string $contentType = null): void
+	public function put(string $name, string $localPath, ?string $contentType = null, ?string $md5 = null): void
 	{
 		clearstatcache(true, $localPath);
 		$size = @filesize($localPath);
-		$md5 = @md5_file($localPath, true);
+		$md5 ??= @md5_file($localPath);
 
 		if ($size === false || $md5 === false) {
 			throw new Exception('Cannot read ' . $localPath . '.');
 		}
 
 		try {
-			$result = $this->client->putObject(array_filter([
-				'Bucket' => $this->bucket,
-				'Key' => $this->key($name),
-				'SourceFile' => $localPath,
-				'ContentMD5' => base64_encode($md5),
-				'ContentType' => $contentType,
-			]));
+			if ($size >= self::$multipartThreshold) {
+				$uploader = new MultipartUploader($this->client, $localPath, [
+					'bucket' => $this->bucket,
+					'key' => $this->key($name),
+					'before_initiate' => function ($command) use ($contentType): void {
+						if ($contentType !== null) {
+							$command['ContentType'] = $contentType;
+						}
+					},
+				]);
+				$uploader->upload();
+				$etag = '';
+			} else {
+				$result = $this->client->putObject(array_filter([
+					'Bucket' => $this->bucket,
+					'Key' => $this->key($name),
+					'SourceFile' => $localPath,
+					'ContentMD5' => base64_encode(hex2bin($md5)),
+					'ContentType' => $contentType,
+				]));
+				$etag = trim((string) ($result['ETag'] ?? ''), '"');
+			}
 		} catch (S3Exception $e) {
 			throw new Exception('Uploading ' . $this->getPath($name) . ' failed: ' . ($e->getAwsErrorMessage() ?: $e->getMessage()), 0, $e);
+		} catch (\Aws\Exception\MultipartUploadException $e) {
+			throw new Exception('Uploading ' . $this->getPath($name) . ' failed: ' . $e->getMessage(), 0, $e);
 		}
 
 		// server telo overil proti Content-MD5; ETag jednodilneho uploadu je md5 obsahu,
 		// takze sedi i to, co server ulozil
-		$etag = trim((string) ($result['ETag'] ?? ''), '"');
-		if ($etag !== '' && !str_contains($etag, '-') && $etag !== bin2hex($md5)) {
+		if ($etag !== '' && !str_contains($etag, '-') && $etag !== $md5) {
 			$this->delete($name);
 			throw new Exception('Hash of the uploaded ' . $this->getPath($name) . ' does not match the original.');
 		}

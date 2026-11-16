@@ -45,6 +45,9 @@ class FileListener implements EventSubscriber
 			throw new Exception("Class 'Doctrine\ORM\EntityManagerInterface' required by \$em in FileListener::__construct() not found.");
 		}
 		$this->em = $em;
+		if ($dataUrl !== null && $dataDir instanceof Storage) {
+			throw new Exception('$dataUrl applies to a directory only, a Storage carries its own URL - pass it to the storage.');
+		}
 		$this->dataStorage = self::storage($dataDir, $dataUrl);
 		// privatni adresar dostaval stejnou URL odjakziva - zustava, at se projektum nic nemeni
 		$this->privateDataStorage = self::storage($privateDataDir, $dataUrl);
@@ -231,7 +234,7 @@ class FileListener implements EventSubscriber
 			throw new Exception('Entity does not have a temporary file or content set.');
 		}
 
-		$filename = Helpers::getName($file->getOriginalName(), $file->getId());
+		$filename = $this->resolveFilename($file);
 
 		$file->setFilename($filename);
 
@@ -244,10 +247,7 @@ class FileListener implements EventSubscriber
 		if (!$ownTemporaryFile) {
 			$source = $file->getTemporaryFile();
 		} else {
-			$source = tempnam(sys_get_temp_dir(), 'adt-files-');
-			if ($source === false) {
-				throw new Exception('Cannot create a temporary file.');
-			}
+			$source = Helpers::createTemporaryFile();
 			$written = $file->getStream()
 				? @copy($file->getStream(), $source)
 				: @file_put_contents($source, $file->getTemporaryContent()) !== false;
@@ -266,7 +266,7 @@ class FileListener implements EventSubscriber
 			// the whole file into memory and exhaust the memory limit on large files
 			$hash = md5_file($source) ?: null;
 
-			$storage->put($filename, $source, $mimeType);
+			$storage->put($filename, $source, $mimeType, $hash);
 		} catch (Throwable $e) {
 			if ($ownTemporaryFile) {
 				@unlink($source);
@@ -292,6 +292,15 @@ class FileListener implements EventSubscriber
 		if ($file->getOnAfterSave()) {
 			call_user_func($file->getOnAfterSave(), $file);
 		}
+	}
+
+	/**
+	 * Jmeno, pod kterym se soubor ulozi (sloupec filename). Projekt s vlastnim schematem nazvu
+	 * prepise tohle, ne cele saveFile().
+	 */
+	protected function resolveFilename(File $file): string
+	{
+		return Helpers::getName($file->getOriginalName(), $file->getId());
 	}
 
 	protected function setupEntity(File $file): void

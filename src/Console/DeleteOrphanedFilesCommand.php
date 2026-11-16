@@ -51,13 +51,15 @@ class DeleteOrphanedFilesCommand extends Command
 	{
 		$this
 			->addOption('exec', null, InputOption::VALUE_NONE, 'Actually delete the files; without it nothing is touched')
-			->addOption('min-age', null, InputOption::VALUE_REQUIRED, 'Leave files modified in the last N seconds alone', (string) self::DEFAULT_MIN_AGE);
+			->addOption('min-age', null, InputOption::VALUE_REQUIRED, 'Leave files modified in the last N seconds alone', (string) self::DEFAULT_MIN_AGE)
+			->addOption('archived', null, InputOption::VALUE_NONE, 'Treat the data storage copy of an archived row as an orphan too (left behind when the delete after archiving failed)');
 	}
 
 	protected function execute(InputInterface $input, OutputInterface $output): int
 	{
 		$exec = (bool) $input->getOption('exec');
 		$minAge = max(0, (int) $input->getOption('min-age'));
+		$archived = (bool) $input->getOption('archived');
 
 		/** @var Storage[] $storages */
 		$storages = [];
@@ -80,7 +82,7 @@ class DeleteOrphanedFilesCommand extends Command
 		}
 
 		if (!$storages) {
-			$output->writeln('None of the configured data directories exists. Nothing was touched.');
+			$output->writeln('None of the configured storages exists. Nothing was touched.');
 
 			return Command::FAILURE;
 		}
@@ -107,7 +109,9 @@ class DeleteOrphanedFilesCommand extends Command
 			$output->writeln($storage->getPath(''));
 
 			foreach ($storage->list() as $name => [$size, $modified]) {
-				if (isset($known[$name])) {
+				// jmeno radku chrani soubor vsude; s --archived uz ne kopii v datovem ulozisti,
+				// kdyz radek rika, ze soubor je v archivu
+				if (isset($known[$name]) && !($archived && $known[$name])) {
 					continue;
 				}
 
@@ -137,10 +141,6 @@ class DeleteOrphanedFilesCommand extends Command
 				try {
 					$storage->delete($name);
 				} catch (Throwable) {
-					$failures[] = $path;
-					continue;
-				}
-				if ($storage->getSize($name) !== null) {
 					$failures[] = $path;
 				}
 			}
@@ -172,7 +172,10 @@ class DeleteOrphanedFilesCommand extends Command
 	 * filtr by skryl smazane radky, ktere si soubor na disku zamerne nechavaji (kvuli
 	 * obnoveni, viz FileListener::preRemove). Jejich soubory by pak vypadaly jako osirele.
 	 *
-	 * @return array<string, true>
+	 * Hodnota = jestli je radek archivovany (soubor lezi v archivu a kopie v datovem ulozisti
+	 * je pozustatek po archivaci, ktere se nepovedlo original smazat).
+	 *
+	 * @return array<string, bool>
 	 */
 	protected function getKnownFilenames(): array
 	{
@@ -192,14 +195,15 @@ class DeleteOrphanedFilesCommand extends Command
 
 			$table = $quoteStrategy->getTableName($declaringMetadata, $platform);
 			$column = $quoteStrategy->getColumnName('filename', $declaringMetadata, $platform);
+			$archivedColumn = $quoteStrategy->getColumnName('isArchived', $declaringMetadata, $platform);
 
 			if (isset($queried[$table])) {
 				continue;
 			}
 			$queried[$table] = true;
 
-			foreach ($connection->executeQuery("SELECT $column FROM $table WHERE $column IS NOT NULL")->iterateColumn() as $filename) {
-				$known[$filename] = true;
+			foreach ($connection->executeQuery("SELECT $column, $archivedColumn FROM $table WHERE $column IS NOT NULL")->iterateNumeric() as [$filename, $isArchived]) {
+				$known[$filename] = (bool) $isArchived;
 			}
 		}
 

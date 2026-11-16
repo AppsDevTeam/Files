@@ -200,6 +200,33 @@ final class S3FilesTest extends S3TestCase
 	}
 
 	#[Test]
+	public function dataUrlIsRefusedWithAStorage(): void
+	{
+		$this->expectExceptionMessage('$dataUrl applies to a directory only');
+		EntityManagerFactory::create($this->dataStorage(), dataUrl: 'https://files.example.com');
+	}
+
+	#[Test]
+	public function leftoverOriginalOfAnArchivedRowIsAnOrphanOnlyWithArchived(): void
+	{
+		$data = $this->dataStorage();
+		$archive = $this->archiveStorage();
+		$em = EntityManagerFactory::create($data, archiveDir: $archive);
+		$file = $this->createFile($em);
+		$name = $file->getFilename();
+		$this->archiver($em)->processArchive(TestFile::class, $file->getId());
+		$data->put($name, $this->localFile('contents'));
+
+		$tester = new CommandTester(new DeleteOrphanedFilesCommand($em, $data));
+		$tester->execute(['--min-age' => '0', '--exec' => true]);
+		self::assertNotNull($data->getSize($name), 'Without --archived the row protects its name everywhere.');
+
+		$tester->execute(['--min-age' => '0', '--exec' => true, '--archived' => true]);
+		self::assertNull($data->getSize($name));
+		self::assertNotNull($archive->getSize($name), 'The archive is not scanned, its copy stays.');
+	}
+
+	#[Test]
 	public function orphansInTheBucketAreListedAndDeleted(): void
 	{
 		$storage = $this->dataStorage();

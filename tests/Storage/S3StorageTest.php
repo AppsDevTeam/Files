@@ -40,6 +40,27 @@ final class S3StorageTest extends S3TestCase
 	}
 
 	#[Test]
+	public function bigFileGoesInPartsAndIsCheckedBySize(): void
+	{
+		$storage = $this->dataStorage();
+		$contents = random_bytes(12 * 1024 * 1024);
+		$threshold = S3Storage::$multipartThreshold;
+		S3Storage::$multipartThreshold = 5 * 1024 * 1024;
+
+		try {
+			$storage->put('parts.bin', $this->localFile($contents), 'application/octet-stream');
+		} finally {
+			S3Storage::$multipartThreshold = $threshold;
+		}
+
+		self::assertSame(12 * 1024 * 1024, $storage->getSize('parts.bin'));
+		$object = self::client()->getObject(['Bucket' => getenv('ADT_FILES_S3_BUCKET'), 'Key' => $this->prefix . '/parts.bin']);
+		self::assertSame($contents, (string) $object['Body']);
+		self::assertSame('application/octet-stream', $object['ContentType']);
+		self::assertStringContainsString('-', trim($object['ETag'], '"'), 'A multipart ETag is not a plain md5.');
+	}
+
+	#[Test]
 	public function missingFileHasNoSizeAndCannotBeRead(): void
 	{
 		$storage = $this->dataStorage();
@@ -132,12 +153,22 @@ final class S3StorageTest extends S3TestCase
 		} finally {
 			$storage->delete('a.txt');
 		}
+
+		// the same server and key again share the client, so the wrapper is not contested
+		$archive = S3Storage::create(
+			getenv('ADT_FILES_S3_ENDPOINT'),
+			getenv('ADT_FILES_S3_KEY'),
+			getenv('ADT_FILES_S3_SECRET'),
+			getenv('ADT_FILES_S3_ARCHIVE_BUCKET'),
+			getenv('ADT_FILES_S3_REGION') ?: 'garage',
+		);
+		self::assertSame($storage->getClient(), $archive->getClient());
 	}
 
 	#[Test]
 	public function anotherServerNeedsItsOwnProtocol(): void
 	{
-		$this->expectExceptionMessage('already belongs to another S3 server');
+		$this->expectExceptionMessage('already belongs to another S3 client');
 		S3Storage::create('http://127.0.0.1:1', 'other', 'other', 'bucket');
 	}
 

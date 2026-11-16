@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace ADT\Files\Tests\Storage;
 
 use ADT\Files\Storage\S3Storage;
-use Aws\S3\S3Client;
+use Aws\S3\S3ClientInterface;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -14,7 +14,7 @@ use PHPUnit\Framework\TestCase;
  */
 abstract class S3TestCase extends TestCase
 {
-	private static ?S3Client $client = null;
+	private static ?S3ClientInterface $client = null;
 	protected string $prefix;
 	/** @var S3Storage[] */
 	private array $storages = [];
@@ -37,15 +37,19 @@ abstract class S3TestCase extends TestCase
 		}
 	}
 
-	protected static function client(): S3Client
+	/**
+	 * The client create() builds and caches - the wrapper protocol has one client, so the tests
+	 * of create() and those with a client of their own have to agree on it.
+	 */
+	protected static function client(): S3ClientInterface
 	{
-		return self::$client ??= new S3Client([
-			'version' => 'latest',
-			'region' => getenv('ADT_FILES_S3_REGION') ?: 'garage',
-			'endpoint' => getenv('ADT_FILES_S3_ENDPOINT'),
-			'use_path_style_endpoint' => true,
-			'credentials' => ['key' => getenv('ADT_FILES_S3_KEY'), 'secret' => getenv('ADT_FILES_S3_SECRET')],
-		]);
+		return self::$client ??= S3Storage::create(
+			getenv('ADT_FILES_S3_ENDPOINT'),
+			getenv('ADT_FILES_S3_KEY'),
+			getenv('ADT_FILES_S3_SECRET'),
+			getenv('ADT_FILES_S3_BUCKET'),
+			getenv('ADT_FILES_S3_REGION') ?: 'garage',
+		)->getClient();
 	}
 
 	protected function dataStorage(?string $url = null, ?string $subPrefix = null): S3Storage

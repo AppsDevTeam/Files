@@ -1,0 +1,22 @@
+name: tests
+
+on: [push, pull_request]
+
+jobs:
+  phpunit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: fileinfo, pdo_sqlite
+          coverage: none
+      - run: composer install --no-interaction --no-progress
+      # the S3 tests run against a single node Garage in Docker, see tests/s3/garage.sh
+      - run: tests/s3/garage.sh up > s3.env
+      - run: |
+          set -a; . ./s3.env; set +a
+          vendor/bin/phpunit --no-progress
+      - if: always()
+        run: tests/s3/garage.sh down

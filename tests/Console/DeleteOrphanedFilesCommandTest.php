@@ -243,7 +243,7 @@ final class DeleteOrphanedFilesCommandTest extends TestCase
 		$tester->execute(['--exec' => true]);
 
 		self::assertSame(Command::FAILURE, $tester->getStatusCode());
-		self::assertStringContainsString('None of the configured data directories exists', $tester->getDisplay());
+		self::assertStringContainsString('None of the configured storages exists', $tester->getDisplay());
 	}
 
 	#[Test]

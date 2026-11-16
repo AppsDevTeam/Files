@@ -33,7 +33,7 @@ class LocalStorage implements Storage
 		return $this->directory;
 	}
 
-	public function put(string $name, string $localPath, ?string $contentType = null): void
+	public function put(string $name, string $localPath, ?string $contentType = null, ?string $md5 = null): void
 	{
 		$target = $this->getPath($name);
 
@@ -71,7 +71,8 @@ class LocalStorage implements Storage
 			}
 
 			clearstatcache(true, $tmp);
-			if (@filesize($tmp) !== @filesize($localPath) || @md5_file($tmp) !== @md5_file($localPath)) {
+			$md5 ??= @md5_file($localPath);
+			if (@filesize($tmp) !== @filesize($localPath) || $md5 === false || @md5_file($tmp) !== $md5) {
 				throw new Exception('Copy ' . $tmp . ' does not match ' . $localPath . '.');
 			}
 
@@ -107,7 +108,11 @@ class LocalStorage implements Storage
 
 	public function delete(string $name): void
 	{
-		@unlink($this->getPath($name));
+		$path = $this->getPath($name);
+
+		if (!@unlink($path) && is_file($path)) {
+			throw new Exception('Cannot delete ' . $path . '.');
+		}
 	}
 
 	public function getPath(string $name): string

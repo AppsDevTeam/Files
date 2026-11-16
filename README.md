@@ -116,6 +116,10 @@ Directories left empty by the sweep are removed as well - names are split into d
 by id, so cleaning up files alone would leave a skeleton of empty ones behind. A directory
 that still holds anything stays, and the data directories themselves are never touched.
 
+A file of an *archived* row left behind in the data storage (the delete after archiving failed,
+see below) is kept too, the row names it - `--archived` treats it as an orphan, the row says
+its file is in the archive. The archive itself is never scanned.
+
 Files modified within the last day are left alone (`--min-age`, in seconds). The file is
 written in `postPersist`, so between that write and the commit of the surrounding transaction
 an upload that is about to succeed looks exactly like an orphan.
@@ -160,6 +164,9 @@ about it than what is already there, which also makes repeated runs free.
 * `--entity` limits the run to a single entity class
 * `--batch-size` is how many rows are read and written at once, 500 by default
 
+The command reads the file from the disk, so it takes directories, not storages - the rows it
+is for are from before the mime type column, which is before S3.
+
 Storages
 ---------
 
@@ -171,7 +178,7 @@ working unchanged (a string is wrapped in `LocalStorage` for you).
 
 ```
 services:
-    - ADT\Files\Storage\S3Storage::create(
+    filesStorage: ADT\Files\Storage\S3Storage::create(
         endpoint: %s3.endpoint%,      # http://10.0.21.1:3900
         key: %s3.key%,
         secret: %s3.secret%,
@@ -180,8 +187,14 @@ services:
         prefix: files,                # optional directory inside the bucket
         url: 'https://files.example.com/files' # optional, what getUrl() returns; leave out for no URL
     )
-    - ADT\Files\Listeners\FileListener(dataDir: @ADT\Files\Storage\S3Storage, dataUrl: null, ...)
+    filesArchive: ADT\Files\Storage\S3Storage::create(%archive.endpoint%, %archive.key%, %archive.secret%, %archive.bucket%, protocol: 's3-archive')
+    - ADT\Files\Listeners\FileListener(dataDir: @filesStorage, privateDataDir: @filesStorage, archiveDir: @filesArchive)
+    - ADT\Files\Console\DeleteOrphanedFilesCommand(@filesStorage)
 ```
+
+Name the storages - the listener needs more than one of the same class, and autowiring by type
+would not know which is which. `$dataUrl` belongs to a directory; with a storage it throws, the
+storage carries its URL.
 
 `S3Storage::create()` builds the client with path style addressing, which Garage and MinIO
 need; pass an `Aws\S3\S3ClientInterface` of your own to the constructor when you have one.
@@ -203,9 +216,17 @@ What changes with a bucket:
   size is checked afterwards; an object under its final name is always complete.
 * `files:delete-orphans` takes a storage as well and lists the bucket. `files:fill-mime-type` is
   for rows from before the column existed, which predate S3 - it stays on directories.
+* Files over `S3Storage::$multipartThreshold` (1 GB) go up in parts - a single PUT is limited to
+  5 GB - and are checked by size only, there is no `Content-MD5` of the whole.
 * Files are not tiered inside one bucket. One Garage cluster has one layout for all its buckets,
   so "the archive on the cheap node" is a *second* cluster (or any other server) with its own
   `S3Storage` as the archive, see below.
+* The entity holds its storage, and an `S3Storage` holds the client - a `File` entity put into
+  the session or otherwise serialized will not survive it (it would not have with the callbacks
+  `setOnAfterSave()` keeps either). Store the id.
+* Saving goes through a temporary file whatever the storage, and archiving a bucket file downloads
+  it into one. They live in `sys_get_temp_dir()` unless `Helpers::$temporaryDirectory` says
+  otherwise - set it where `/tmp` is small or tmpfs and the files are not.
 
 The tests against a real S3 need one: `eval "$(tests/s3/garage.sh up)"` starts a single node
 Garage in Docker and exports what the tests read, without it they are skipped.
@@ -269,6 +290,9 @@ result, then `rename()`. Anything less can lose data silently when the archive g
   that must not fail.
 * Deleting an archived entity deletes the file in the archive; if the archive is unavailable at
   that moment, the file stays there as an orphan.
+* Deleting the original after the row was marked archived can fail the same way (the bucket is
+  down for a moment). The row is right, the file is in the archive, the original just stays -
+  the next run of the job removes it, or `files:delete-orphans --archived` does.
 
 ### Upgrading
 
@@ -283,6 +307,17 @@ The entity no longer carries a directory and a URL but a `Storage`: `setBaseDire
 and `getDataStorageFor()`. A project that only configures the listener and uses the trait does
 not notice. Saving a file now goes through a temporary file and a verified copy (`fsync()`),
 whatever the storage.
+
+A project with its own listener on top of this one:
+
+* a different URL for some files (private, archived) is the URL of their storage -
+  `new LocalStorage($privateDir, $privateUrl)` for the private data directory and
+  `new LocalStorage($archiveDir, $privateUrl)` for the archive, instead of `setBaseDirectoryUrl()`
+  in `setupEntity()`. An archive with a URL serves `getUrl()` of archived files; one without throws
+  as before,
+* a directory chosen per entity is `getDataStorageFor()` returning a `LocalStorage` for it
+  (it is called every time, keep them in a map),
+* a naming scheme of its own is `resolveFilename()`, there is no need to copy `saveFile()`.
 
 Content images
 ---------
