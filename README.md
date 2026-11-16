@@ -245,7 +245,10 @@ services:
 ```
 
 To copy *before* switching the listener, name the targets as well (`to`, `privateTo`,
-`archiveTo`, `privateArchiveTo`, the same four) - the listener is not consulted then:
+`archiveTo`, `privateArchiveTo`, the same four) - the listener is not consulted then, and
+`--delete` is refused: the application still reads from the source. Rows in an archive need
+`archiveTo` as well, they are reported otherwise rather than copied into `to`, where the
+listener with an archive would not look for them:
 
 ```
     - ADT\Files\Console\MigrateStorageCommand(from: %dataDir%/files, privateFrom: %dataPrivateDir%/files, to: @filesStorage, privateTo: @filesPrivateStorage)

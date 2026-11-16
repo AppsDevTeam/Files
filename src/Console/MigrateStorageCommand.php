@@ -95,6 +95,14 @@ class MigrateStorageCommand extends Command
 			$output->writeln('--delete has no effect without --exec, nothing is deleted.');
 		}
 
+		// s cili v argumentech listener porad cte ze zdroje - smazany zdroj = nedostupny
+		// soubor az do prepnuti. Po prepnuti se prikaz pousti bez cilu, kde --delete smysl ma.
+		if ($delete && $this->to !== null) {
+			$output->writeln('--delete is for a run with the targets of the listener: with targets of its own the application still reads from the source. Nothing was touched.');
+
+			return Command::FAILURE;
+		}
+
 		$classes = $this->getFileClasses();
 
 		if ($entity = $input->getOption('entity')) {
@@ -135,6 +143,10 @@ class MigrateStorageCommand extends Command
 
 					if ($source === null) {
 						$problems[$class]['Archived rows, but no archive source is configured'][] = $row['id'];
+						continue;
+					}
+					if ($target === null) {
+						$problems[$class]['Archived rows, but no archive target is configured'][] = $row['id'];
 						continue;
 					}
 
@@ -245,14 +257,20 @@ class MigrateStorageCommand extends Command
 	}
 
 	/**
-	 * Cilove uloziste radku - z argumentu, kdyz jsou, jinak listener.
+	 * Cilove uloziste radku - z argumentu, kdyz jsou, jinak listener. Archivovany radek bez
+	 * archivniho cile v argumentech by skoncil v datovem cili, kde ho listener s archivem po
+	 * prepnuti hledat nebude; u cilu z listeneru je to presne misto, kde ho hleda.
 	 *
 	 * @param array{isPrivate: bool, isArchived: bool} $row
 	 */
-	protected function targetFor(array $row): Storage
+	protected function targetFor(array $row): ?Storage
 	{
 		if ($this->to === null) {
 			return $this->listener->getStorage($row['isPrivate'], $row['isArchived']);
+		}
+
+		if ($row['isArchived'] && ($row['isPrivate'] ? $this->privateArchiveTo ?? $this->archiveTo : $this->archiveTo) === null) {
+			return null;
 		}
 
 		return FileListener::resolve($this->to, $this->privateTo, $this->archiveTo, $this->privateArchiveTo, $row['isPrivate'], $row['isArchived']);

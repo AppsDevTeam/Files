@@ -100,6 +100,12 @@ final class MigrateStorageCommandTest extends S3TestCase
 
 		$command = new MigrateStorageCommand($em, self::fileListener($em), $this->dir . '/www', $this->dir . '/private', $this->dir . '/archive', to: $data, privateTo: $privateData, archiveTo: $archive);
 		$tester = new CommandTester($command);
+
+		// the listener still reads from the directory, so the source must not go
+		self::assertSame(1, $tester->execute(['--exec' => true, '--delete' => true]));
+		self::assertStringContainsString('--delete is for a run with the targets of the listener', $tester->getDisplay());
+		self::assertNull($data->getSize($public->getFilename()));
+
 		self::assertSame(0, $tester->execute(['--exec' => true]));
 		self::assertStringContainsString('Copied 3 files', $tester->getDisplay());
 		self::assertSame(6, $data->getSize($public->getFilename()));
@@ -118,6 +124,20 @@ final class MigrateStorageCommandTest extends S3TestCase
 		self::assertStringContainsString('Copied 1 files', $tester->getDisplay());
 		self::assertStringContainsString('3 already in the target, 4 deleted', $tester->getDisplay());
 		self::assertSame('later', $switched->find(TestFile::class, $later->getId())->getContents());
+	}
+
+	#[Test]
+	public function archivedRowWithoutAnArchiveTargetIsReported(): void
+	{
+		$em = EntityManagerFactory::create($this->dir . '/www', archiveDir: $this->dir . '/archive');
+		$archived = $this->createFile($em, 'archived');
+		$this->archiver($em)->processArchive(TestFile::class, $archived->getId());
+		$data = $this->dataStorage();
+
+		$tester = new CommandTester(new MigrateStorageCommand($em, self::fileListener($em), $this->dir . '/www', archiveFrom: $this->dir . '/archive', to: $data));
+		self::assertSame(1, $tester->execute(['--exec' => true]));
+		self::assertStringContainsString('no archive target is configured (1): ' . $archived->getId(), $tester->getDisplay());
+		self::assertNull($data->getSize($archived->getFilename()), 'An archived file must not land in the data target.');
 	}
 
 	#[Test]
