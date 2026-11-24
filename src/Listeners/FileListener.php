@@ -11,6 +11,7 @@ use ADT\Files\Storage\LocalStorage;
 use ADT\Files\Storage\Storage;
 use Doctrine\Common\EventSubscriber;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\Event\PostFlushEventArgs;
 use Doctrine\ORM\Event\PostLoadEventArgs;
 use Doctrine\ORM\Event\PostPersistEventArgs;
 use Doctrine\ORM\Event\PreRemoveEventArgs;
@@ -207,14 +208,22 @@ class FileListener implements EventSubscriber
 		$this->filesToDelete[] = $entity;
 	}
 
-	public function postFlush(): void
+	public function postFlush(?PostFlushEventArgs $args = null): void
 	{
 		if (!$this->filesToDelete) {
 			return;
 		}
 
-		$entities = $this->filesToDelete;
+		// Odebrani muze byt po preRemove zruseno: remove() vlastnika se pres orphanRemoval propsal
+		// i na soubor, SoftDeleteable pak vlastnika v onFlush znovu persistne a Doctrine s nim vrati
+		// i soubor - radek zustane, takze soubor nesmi zmizet. Skutecne smazana entita uz neni managed.
+		$em = $args?->getObjectManager() ?? $this->em;
+		$entities = array_values(array_filter($this->filesToDelete, fn (File $entity) => !$em->contains($entity)));
 		$this->filesToDelete = [];
+
+		if (!$entities) {
+			return;
+		}
 
 		// postFlush bezi jeste uvnitr transakce, takze smazat soubor tady je nebezpecne:
 		// pripadny rollback vrati entitu do db, ale soubor uz je nenavratne pryc
